@@ -1,0 +1,194 @@
+* {
+  box-sizing: border-box;
+}
+.auth-page-container {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding:0 30px 10px;
+  box-sizing: border-box;
+}
+
+.top-left {
+  top: -150px;
+  left: -150px;
+}
+
+.auth-content {
+  width: 100%;
+  max-width: 1200px;
+  z-index: 1;
+}
+
+.brand-info {
+  margin-bottom: 40px;
+  text-align: center;
+}
+
+.brand-title {
+  font-family: 'Georgia', serif !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.5px;
+}
+
+.brand-slogan {
+  font-size: 18px !important;
+  font-style: italic;
+  margin-top: 10px;
+}
+
+.auth-image {
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  /* box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08); */
+  transition: transform 0.3s ease;
+}
+
+.auth-image:hover {
+  transform: translateY(-5px);
+}
+
+/* 右侧表单卡片 */
+.auth-card {
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.05);
+  padding: 10px 30px;
+  transition: all 0.3s ease;
+}
+
+.auth-card:hover {
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.auth-title {
+  font-family: 'Georgia', serif !important;
+  margin-bottom: 10px !important;
+}
+
+.auth-subtitle {
+  font-size: 14px !important;
+}
+
+.auth-form {
+  margin-top: 20px;
+}
+
+/* 输入框样式 */
+.auth-input {
+  border-radius: 8px;
+  height: 45px;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.auth-input:focus {
+  box-shadow: 0 0 0 2px rgba(184, 169, 158, 0.2) !important;
+}
+
+
+
+/* 验证码样式 */
+.captcha-container {
+  display: flex;
+  align-items: center;
+}
+
+.captcha-image {
+  height: 40px;
+  border-radius: 8px;
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+}
+
+.captcha-loading {
+  width: 120px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.refresh-captcha {
+  margin-left: 8px !important;
+  width: 40px;
+  height: 40px;
+  padding: 0 !important;
+}
+
+
+
+/* 按钮样式 */
+.submit-button {
+  height: 45px;
+  border-radius: 8px;
+  font-size: 16px !important;
+  transition: all 0.3s ease !important;
+}
+
+.submit-button:hover {
+  transform: translateY(-2px);
+}
+
+.toggle-button {
+  font-size: 15px !important;
+  padding: 10px 0 !important;
+}
+
+.toggle-button:hover {
+  text-decoration: underline;
+}
+
+/* 其他样式 */
+.auth-divider {
+  margin: 20px 0 !important;
+}
+
+.remember-me {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+
+
+
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .auth-card {
+    padding: 10px 20px;
+  }
+
+  .auth-decoration {
+    width: 300px;
+    height: 300px;
+  }
+}
+
+@media (max-width: 480px) {
+  .auth-page-container {
+    padding: 10px;
+  }
+
+  .auth-card {
+    padding: 25px 15px;
+  }
+
+  .brand-title {
+    font-size: 24px !important;
+  }
+}

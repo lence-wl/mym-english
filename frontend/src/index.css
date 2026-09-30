@@ -1,0 +1,87 @@
+@import 'tailwindcss';
+@config "../tailwind.config.ts";
+
+@layer components {
+  .h1 {
+    @apply font-bold text-2xl;
+  }
+  .btn {
+    @apply rounded-full p-1 px-4 border border-black;
+  }
+  .search {
+    @apply flex bg-white gap-1 border-[1px] rounded-[10px];
+  }
+  .searchInput {
+    @apply w-full bg-white p-0.5 rounded-l-[10px];
+  }
+  .nextResultBtn {
+    @apply rounded-r-[10px] w-36;
+  }
+}
+
+/* 针对 Select 下拉菜单的弹出层 */
+.ant-select-dropdown {
+  background-color: var(--ant-color-bg-container) !important;
+  color: var(--ant-color-text) !important;
+  border-color: var(--ant-color-border) !important;
+}
+
+.ant-select-item {
+  color: var(--ant-color-text) !important;
+}
+
+.ant-select-item-selected {
+  background-color: var(--ant-color-primary-light-9) !important;
+  color: var(--ant-color-primary) !important;
+}
+
+/* 1. 基础输入框样式（包括手动输入、回显值） */
+.ant-input,
+.ant-input-affix-wrapper {
+  /* 字体颜色：跟随 antd 主文本色 */
+  color: var(--ant-color-text-primary) !important;
+  /* 背景色：跟随 antd 容器背景色（确保和主题一致） */
+  background-color: var(--ant-color-bg-container) !important;
+  /* 边框色：跟随 antd 边框色 */
+  border-color: var(--ant-color-border) !important;
+}
+
+/* 2. 输入框获取焦点时 */
+.ant-input:focus,
+.ant-input-affix-wrapper:focus,
+.ant-input:focus-within,
+.ant-input-affix-wrapper:focus-within {
+  /* 焦点边框色：跟随 antd 主题主色 */
+  border-color: var(--ant-color-primary) !important;
+  /* 焦点阴影：使用 antd 主色的半透明阴影 */
+  box-shadow: 0 0 0 2px rgba(var(--ant-color-primary-rgb), 0.2) !important;
+}
+
+/* 3. 禁用状态的输入框 */
+.ant-input:disabled,
+.ant-input-affix-wrapper:disabled {
+  /* 禁用时文本色：跟随 antd 禁用文本色 */
+  color: var(--ant-color-text-disabled) !important;
+  background-color: var(--ant-color-bg-disabled) !important;
+}
+
+/* 4. Placeholder 文本色（关键：placeholder 需单独设置） */
+.ant-input::placeholder,
+.ant-input-affix-wrapper::placeholder {
+  /* 跟随 antd 次要文本色（placeholder 通常比主文本浅） */
+  color: var(--ant-color-text-secondary) !important;
+  opacity: 1; /* 修复部分浏览器 placeholder 透明度问题 */
+}
+
+/* 5. 自动填充/回显值的文本色（补充之前的自动填充样式） */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-internal-autofill-selected {
+  /* 强制自动填充文本色跟随主题 */
+  -webkit-text-fill-color: var(--ant-color-text-base) !important;
+  /* 自动填充背景色跟随主题容器色 */
+  background-color: var(--ant-color-bg-container) !important;
+  /* 用内阴影覆盖浏览器默认填充背景 */
+  -webkit-box-shadow: 0 0 0 1000px var(--ant-color-bg-container) inset !important;
+}

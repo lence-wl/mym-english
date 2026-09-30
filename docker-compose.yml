@@ -1,0 +1,52 @@
+services:
+  app:
+    build: .
+    container_name: mym-app
+    restart: always
+    ports:
+      # 直接对外暴露：域名备案/证书就绪前先按 IP:端口 访问（http://<服务器IP>:8080）。
+      # 域名就绪后对外入口走 web-gateway 的 proxy_pass（见 networks.web），两者并存互不影响
+      - "${APP_PORT:-8080}:3000"
+    networks:
+      default: {}
+      web:
+        # 网关侧用的唯一别名（各项目都叫 app，必须在 web 网络上区分开）
+        aliases:
+          - mym-app
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # SQLite 数据库文件（配合 mym_db 卷持久化）
+      DB_PATH: /data/app.db
+      # 上传目录（相对 /app，配合 mym_uploads 卷持久化）
+      UPLOAD_DIR: uploads
+      # 以下必须由宿主 .env 提供
+      JWT_SECRET: ${JWT_SECRET}
+      BCRYPT_SALT_ROUNDS: ${BCRYPT_SALT_ROUNDS:-14}
+      ADMIN_DEFAULT_EMAIL: ${ADMIN_DEFAULT_EMAIL}
+      ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD}
+      # 第三方服务密钥（火山引擎豆包 / TTS、验证码加密）
+      ARK_API_KEY: ${ARK_API_KEY}
+      ARK_MODEL: ${ARK_MODEL:-}
+      TTS_APP_ID: ${TTS_APP_ID}
+      TTS_TOKEN: ${TTS_TOKEN}
+      TTS_RESOURCE_ID: ${TTS_RESOURCE_ID:-seed-tts-2.0}
+      TTS_APP_KEY: ${TTS_APP_KEY:-aGjiRDfUWi}
+      TTS_SPEAKER: ${TTS_SPEAKER:-zh_female_vv_uranus_bigtts}
+      # 语音缓存容量上限（MB），超出后按最久未使用淘汰
+      TTS_CACHE_MAX_MB: ${TTS_CACHE_MAX_MB:-500}
+      CAPTCHA_SECRET_KEY: ${CAPTCHA_SECRET_KEY:-please-change-me-32-bytes-secret}
+    volumes:
+      - mym_db:/data
+      - mym_uploads:/app/uploads
+
+volumes:
+  mym_db:
+  mym_uploads:
+
+networks:
+  # 与 web-gateway 及其它站点共用的外部网络，网关按别名 mym-app 反代过来。
+  # 部署前需先执行一次：docker network create web
+  web:
+    external: true
+    name: web

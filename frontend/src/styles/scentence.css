@@ -1,0 +1,43 @@
+/* 骨架屏加载动画优化 */
+.animate-pulse {
+  animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* 自定义骨架屏渐变动画 */
+.sentence-skeleton .ant-skeleton-input {
+  background: linear-gradient(
+    90deg,
+    #f0f0f0 25%,
+    #e0e0e0 50%,
+    #f0f0f0 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* 骨架屏元素进入动画 */
+.translation-item-skeleton {
+  animation: fadeIn 0.3s ease-out forwards;
+  opacity: 0;
+}
+
+/* 为每个骨架项添加 staggered 动画效果 */
+.translation-item-skeleton:nth-child(1) { animation-delay: 0.1s; }
+.translation-item-skeleton:nth-child(2) { animation-delay: 0.2s; }
+.translation-item-skeleton:nth-child(3) { animation-delay: 0.3s; }
+
+/* 动画关键帧定义 */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
