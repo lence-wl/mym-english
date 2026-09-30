@@ -20,9 +20,10 @@ services:
     container_name: mym-app
     restart: always
     ports:
-      # 直接对外暴露：域名备案/证书就绪前先按 IP:端口 访问（http://<服务器IP>:8080）。
+      # 直接对外暴露：域名备案/证书就绪前先按 IP:端口 访问（http://<服务器IP>:8081）。
+      # 8080 已被 data-show 占用，本项目固定用 8081，避免端口冲突。
       # 域名就绪后对外入口走 web-gateway 的 proxy_pass（见 networks.web），两者并存互不影响
-      - "${APP_PORT:-8080}:3000"
+      - "${APP_PORT:-8081}:3000"
     networks:
       default: {}
       web:

@@ -30,6 +30,6 @@ fi
 $COMPOSE up -d --build
 
 echo "部署完成："
-echo "  - 本机调试入口: http://127.0.0.1:8080/"
+echo "  - 本机调试入口: http://127.0.0.1:8081/"
 echo "  - 对外入口:     由 web-gateway 容器按域名反代到 mym-app:3000"
 echo "  - 站点配置:     web-gateway 仓库的 conf.d/mym.conf（详见 README「线上接入」）"

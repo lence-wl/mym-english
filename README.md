@@ -16,7 +16,7 @@ mym-english/
 │   ├── src/                  # 前端源码
 │   ├── vite.config.ts        # dev server + /api、/uploads 代理到本地后端
 │   └── package.json          # 前端独立依赖（npm）
-├── docker-compose.yml        # mongodb + app 编排（数据/上传卷，app 加入外部网络 web，回环暴露 8080 便于调试）
+├── docker-compose.yml        # mongodb + app 编排（数据/上传卷，app 加入外部网络 web，宿主暴露 8081 便于按 IP 访问）
 ├── Dockerfile                # 多阶段构建（后端 nest build + 前端 vite build，产物由后端托管）
 ├── scripts/                  # 迁移等一次性脚本（migrate-sqlite-to-mongo.ts）
 ├── .env.example              # 环境变量模板
@@ -58,7 +58,7 @@ cp .env.example .env            # 必须修改：JWT_SECRET、ADMIN_DEFAULT_PASS
 docker compose up -d --build
 ```
 
-- 本机调试入口：http://127.0.0.1:8080/（compose 仅起 app，不包含 nginx）
+- 按 IP 访问：http://<服务器IP>:8081/（备案/证书就绪前的过渡访问方式，compose 仅起 app，不包含 nginx）
 - 对外访问：由 `../web-gateway` 的入口 nginx 容器按域名反代到 `mym-app:3000`
 
 ### 环境变量
@@ -66,7 +66,7 @@ docker compose up -d --build
 | 变量 | 说明 |
 |------|------|
 | PORT | 容器内服务端口，默认 3000 |
-| APP_PORT | 宿主机回环映射端口，默认 8080（仅供本机调试，不对外） |
+| APP_PORT | 宿主机端口映射，默认 8081（绑 0.0.0.0，供备案/证书就绪前按 IP:端口 访问；8080 已被 data-show 占用） |
 | MONGODB_URI | MongoDB 连接串，本地默认 `mongodb://127.0.0.1:27017/mym-english`；Docker 部署由 compose 注入 `mongodb://mongodb:27017/mym-english` |
 | UPLOAD_DIR | 上传目录，默认 `uploads`（容器内 `/app/uploads`，已挂载 `mym_uploads` 卷持久化） |
 | JWT_SECRET | JWT 签名密钥，**生产必填** |
@@ -78,7 +78,7 @@ docker compose up -d --build
 | 服务 | 说明 |
 |------|------|
 | mongodb | MongoDB 7，容器名 `mym-mongo`，数据卷 `mym_mongo`，仅容器网络内可达（不映射宿主端口） |
-| app | NestJS，托管前端产物 + 提供 /api 接口，连接 `mongodb:27017/mym-english`，上传目录 `mym_uploads`，映射宿主 8080 |
+| app | NestJS，托管前端产物 + 提供 /api 接口，连接 `mongodb:27017/mym-english`，上传目录 `mym_uploads`，映射宿主 8081 |
 
 ### 数据库备份 / 恢复
 
