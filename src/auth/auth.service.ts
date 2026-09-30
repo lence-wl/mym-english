@@ -5,24 +5,39 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { User } from './entities/user.entity';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import {
+  User,
+  UserDocument,
+  UserRole,
+} from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
 import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt'; // 引入JWT服务
 import { ConfigService } from '@nestjs/config'; // 导入
-import { UserRole } from './entities/user.entity';
+import { SequenceService } from '../common/sequence.service';
+
+/** 对外返回的用户信息：已剔除密码，id 为数字 */
+type PublicUser = Omit<User, 'password' | '_id'> & { id: number };
 
 @Injectable()
 export class AuthService {
   constructor(
-    @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
+    @InjectModel(User.name)
+    private readonly userModel: Model<UserDocument>,
     private readonly jwtService: JwtService, // 注入JWT服务
     private configService: ConfigService, // 注入
+    private readonly sequenceService: SequenceService,
   ) {}
+
+  /** 文档转对外结构：剔除密码（_id -> id 由 schema 的 toObject 完成） */
+  private toPublicUser(doc: UserDocument): PublicUser {
+    const plain = doc.toObject() as unknown as Record<string, any>;
+    delete plain.password;
+    return plain as PublicUser;
+  }
 
   /**
    * 验证用户身份（供Passport策略使用）
@@ -33,7 +48,7 @@ export class AuthService {
   async validateUser(
     username: string,
     password: string,
-  ): Promise<Omit<User, 'password'>> {
+  ): Promise<PublicUser> {
     // 严格类型检查与基础校验
     if (!username?.trim() || !password?.trim()) {
       throw new BadRequestException('用户名和密码不能为空');
@@ -42,11 +57,10 @@ export class AuthService {
       throw new UnauthorizedException('用户名或密码格式错误');
     }
 
-    // 查询用户（包含密码用于验证）
-    const user = await this.userRepository.findOne({
-      where: { username },
-      select: ['id', 'username', 'password', 'email', 'status'],
-    });
+    // 查询用户（包含密码用于验证；password 在 schema 中默认不返回）
+    const user = await this.userModel
+      .findOne({ username, deletedAt: null })
+      .select('+password');
     if (!user) {
       // 此处使用相同错误信息避免账户枚举攻击
       throw new UnauthorizedException('用户名或密码错误');
@@ -59,8 +73,7 @@ export class AuthService {
     }
 
     // 剔除密码字段后返回
-    const { password: _, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+    return this.toPublicUser(user);
   }
 
   /**
@@ -116,7 +129,7 @@ export class AuthService {
   async register(
     createUserDto: CreateUserDto,
     currentUser?: User, // 新增：当前登录用户，用于权限控制
-  ): Promise<Omit<User, 'password'>> {
+  ): Promise<PublicUser> {
     // 基础参数校验
     this.validateRegisterParams(createUserDto);
 
@@ -132,16 +145,18 @@ export class AuthService {
     }
 
     // 检查用户名是否已存在
-    const existingUser = await this.userRepository.findOne({
-      where: { username: createUserDto.username },
+    const existingUser = await this.userModel.findOne({
+      username: createUserDto.username,
+      deletedAt: null,
     });
     if (existingUser) {
       throw new ConflictException('用户名已被占用');
     }
 
     // 检查邮箱是否已经注册
-    const existingEmail = await this.userRepository.findOne({
-      where: { email: createUserDto.email },
+    const existingEmail = await this.userModel.findOne({
+      email: createUserDto.email,
+      deletedAt: null,
     });
     if (existingEmail) {
       throw new ConflictException('邮箱已注册');
@@ -154,26 +169,24 @@ export class AuthService {
       saltRounds,
     );
 
-    // 创建并保存用户
-    const user = this.userRepository.create({
+    // 创建并保存用户（id 沿用自增整数，与原 SQLite 主键语义一致）
+    const user = new this.userModel({
+      _id: await this.sequenceService.nextId('users'),
       ...createUserDto,
       password: hashedPassword,
       role, // 使用处理后的角色
-      createdAt: new Date(),
-      updatedAt: new Date(),
     });
-    const savedUser = await this.userRepository.save(user);
+    const savedUser = await user.save();
 
     // 剔除密码字段后返回
-    const { password: _, ...result } = savedUser;
-    return result;
+    return this.toPublicUser(savedUser);
   }
-  async getUserById(id: number): Promise<Omit<User, 'password'>> {
-    const user = await this.userRepository.findOne({ where: { id } });
+
+  async getUserById(id: number): Promise<PublicUser> {
+    const user = await this.userModel.findOne({ _id: id, deletedAt: null });
     if (!user) {
       throw new NotFoundException('用户不存在');
     }
-    const { password: _, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+    return this.toPublicUser(user);
   }
 }

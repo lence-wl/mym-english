@@ -4,11 +4,12 @@ import axios from 'axios';
 
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 
 import { TtsRequestDto } from './dto/tts-request.dto';
-import { TtsCache } from './entities/tts-cache.entity';
+import { TtsCache, TtsCacheDocument } from './entities/tts-cache.entity';
+import { SequenceService } from '../common/sequence.service';
 
 // 豆包语音合成 2.0：v3 http 单向流式接口
 const CONFIG = {
@@ -51,8 +52,9 @@ export class TtsService {
 
   constructor(
     private readonly configService: ConfigService,
-    @InjectRepository(TtsCache)
-    private readonly ttsCacheRepo: Repository<TtsCache>,
+    @InjectModel(TtsCache.name)
+    private readonly ttsCacheModel: Model<TtsCacheDocument>,
+    private readonly sequenceService: SequenceService,
   ) {
     this.appId = this.configService.get<string>('TTS_APP_ID') || '';
     this.accessKey = this.configService.get<string>('TTS_TOKEN') || '';
@@ -86,40 +88,38 @@ export class TtsService {
     this.lastEvictAt = Date.now();
 
     try {
-      const usedBytes = Number(
-        (
-          await this.ttsCacheRepo
-            .createQueryBuilder('c')
-            .select('SUM(LENGTH(c.audio))', 'sum')
-            .getRawOne<{ sum: string }>()
-        )?.sum ?? 0,
-      );
+      // 音频总长度（base64 为 ASCII，字符数即字节数）
+      const [usage] = await this.ttsCacheModel.aggregate<{ sum: number }>([
+        { $group: { _id: null, sum: { $sum: { $strLenCP: '$audio' } } } },
+      ]);
+      const usedBytes = usage?.sum ?? 0;
       if (usedBytes <= this.cacheMaxBytes) return;
 
-      // 分批淘汰最久未使用（updated_at 最旧在前）；一批内只删到刚好回到上限之下，
+      // 分批淘汰最久未使用（updatedAt 最旧在前）；一批内只删到刚好回到上限之下，
       // 未收敛则继续下一批，直至收敛或达到批次上限
       let remaining = usedBytes;
       let deletedTotal = 0;
       for (let pass = 0; pass < EVICT_MAX_PASSES; pass++) {
-        const victims = await this.ttsCacheRepo
-          .createQueryBuilder('c')
-          .select('c.id', 'id')
-          .addSelect('LENGTH(c.audio)', 'size')
-          .orderBy('c.updated_at', 'ASC')
-          .limit(EVICT_BATCH_SIZE)
-          .getRawMany<{ id: number; size: string }>();
+        const victims = await this.ttsCacheModel.aggregate<{
+          _id: number;
+          size: number;
+        }>([
+          { $project: { size: { $strLenCP: '$audio' }, updatedAt: 1 } },
+          { $sort: { updatedAt: 1 } },
+          { $limit: EVICT_BATCH_SIZE },
+        ]);
         if (!victims.length) break;
 
         const ids: number[] = [];
         let freed = 0;
         for (const victim of victims) {
           if (remaining - freed <= this.cacheMaxBytes) break;
-          ids.push(victim.id);
-          freed += Number(victim.size) || 0;
+          ids.push(victim._id);
+          freed += victim.size || 0;
         }
         if (!ids.length) break;
 
-        await this.ttsCacheRepo.delete(ids);
+        await this.ttsCacheModel.deleteMany({ _id: { $in: ids } });
         deletedTotal += ids.length;
         remaining -= freed;
       }
@@ -170,21 +170,16 @@ export class TtsService {
   }
 
   /** 读取语音缓存 */
-  private async getCached(cacheKey: string): Promise<TtsCache | null> {
+  private async getCached(cacheKey: string): Promise<TtsCacheDocument | null> {
     try {
-      const hit = await this.ttsCacheRepo.findOne({ where: { cacheKey } });
+      const hit = await this.ttsCacheModel.findOne({ cacheKey });
       if (!hit) return null;
 
-      // 刷新命中次数与最近使用时间（后者是 LRU 淘汰的依据）
-      await this.ttsCacheRepo
-        .createQueryBuilder()
-        .update(TtsCache)
-        .set({
-          hitCount: () => 'hitCount + 1',
-          updatedAt: () => "datetime('now')",
-        })
-        .where('cacheKey = :cacheKey', { cacheKey })
-        .execute();
+      // 刷新命中次数与最近使用时间（updatedAt 由 schema 的 timestamps 自动更新，是 LRU 淘汰的依据）
+      await this.ttsCacheModel.updateOne(
+        { cacheKey },
+        { $inc: { hitCount: 1 } },
+      );
 
       return hit;
     } catch (error) {
@@ -204,9 +199,16 @@ export class TtsService {
     if (!audio) return;
 
     try {
-      await this.ttsCacheRepo.upsert(
-        { cacheKey, audio, duration, frontend },
-        ['cacheKey'],
+      await this.ttsCacheModel.updateOne(
+        { cacheKey },
+        {
+          $set: { audio, duration, frontend },
+          // 仅新增时分配自增 id（更新时该字段被忽略）
+          $setOnInsert: {
+            _id: await this.sequenceService.nextId('tts_cache'),
+          },
+        },
+        { upsert: true },
       );
 
       // 写入后惰性检查容量上限（内部有节流，不阻塞响应）

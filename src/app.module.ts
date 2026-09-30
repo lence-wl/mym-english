@@ -1,14 +1,13 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { MongooseModule } from '@nestjs/mongoose';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
-import { User } from './auth/entities/user.entity';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { SequenceModule } from './common/sequence.module';
 import { APP_INTERCEPTOR, APP_FILTER } from '@nestjs/core';
-import { databaseConfig } from './config/database.config';
 
 import { JwtModule } from '@nestjs/jwt';
 import { UserModule } from './user/user.module';
@@ -19,10 +18,20 @@ import { LLMModule } from './llm/llm.module';
 import { TtsModule } from './tts/tts.module';
 @Module({
   imports: [
-    // 配置SQLite数据库连接
-    TypeOrmModule.forRoot(databaseConfig), // 应用数据库配置
-    // 注册实体到模块中（供业务代码使用）
-    TypeOrmModule.forFeature([User]),
+    ConfigModule.forRoot({
+      isGlobal: true, // 全局可用，无需在其他模块重复导入
+      envFilePath: '.env', // 指定 .env 文件路径（默认根目录）
+      ignoreEnvFile: process.env.NODE_ENV === 'production', // 生产环境可忽略 .env 文件
+    }),
+    // 配置 MongoDB 连接
+    MongooseModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        uri:
+          config.get<string>('MONGODB_URI') ||
+          'mongodb://localhost:27017/mym-english',
+      }),
+    }),
     JwtModule.registerAsync({
       global: true,
       useFactory: (configService: ConfigService) => ({
@@ -31,11 +40,7 @@ import { TtsModule } from './tts/tts.module';
       }),
       inject: [ConfigService],
     }),
-    ConfigModule.forRoot({
-      isGlobal: true, // 全局可用，无需在其他模块重复导入
-      envFilePath: '.env', // 指定 .env 文件路径（默认根目录）
-      ignoreEnvFile: process.env.NODE_ENV === 'production', // 生产环境可忽略 .env 文件
-    }),
+    SequenceModule,
     AuthModule,
     UserModule,
     CaptchaModule,

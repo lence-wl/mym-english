@@ -1,6 +1,6 @@
 # mym-english 英语阅读器（前后端一体）
 
-英语电子书阅读器：前端 React 19 + Vite，后端 NestJS 11 + SQLite（TypeORM），整体 Docker 化部署。
+英语电子书阅读器：前端 React 19 + Vite，后端 NestJS 11 + MongoDB（Mongoose），整体 Docker 化部署。
 后端在生产环境直接托管前端构建产物，宿主 80/443 由同目录下的独立入口网关仓库 `../web-gateway` 按域名反代。
 
 ## 项目结构
@@ -9,14 +9,16 @@
 mym-english/
 ├── src/                      # NestJS 后端
 │   ├── main.ts               # 入口（/api 前缀 + 托管 frontend/dist + /uploads）
-│   ├── app.module.ts         # 根模块（Config + TypeORM + 业务模块 + 全局拦截器/过滤器）
+│   ├── app.module.ts         # 根模块（Config + Mongoose + 业务模块 + 全局拦截器/过滤器）
+│   ├── common/               # 全局响应拦截器/异常过滤器、自增 id 生成器
 │   └── ...                   # auth / user / book / word / llm / tts / captcha / upload 等模块
 ├── frontend/                 # React + Vite 前端
 │   ├── src/                  # 前端源码
 │   ├── vite.config.ts        # dev server + /api、/uploads 代理到本地后端
 │   └── package.json          # 前端独立依赖（npm）
-├── docker-compose.yml        # app 编排（SQLite/上传卷，app 加入外部网络 web，回环暴露 8080 便于调试）
+├── docker-compose.yml        # mongodb + app 编排（数据/上传卷，app 加入外部网络 web，回环暴露 8080 便于调试）
 ├── Dockerfile                # 多阶段构建（后端 nest build + 前端 vite build，产物由后端托管）
+├── scripts/                  # 迁移等一次性脚本（migrate-sqlite-to-mongo.ts）
 ├── .env.example              # 环境变量模板
 └── deploy.sh                 # 一键部署脚本
 ```
@@ -27,7 +29,7 @@ mym-english/
 
 ## 本地开发
 
-依赖：Node ≥ 20、npm（后端）、pnpm（前端）。
+依赖：Node ≥ 20、npm（后端）、pnpm（前端）、MongoDB（本地或经 SSH 隧道连线上）。
 
 ```bash
 npm install                      # 安装后端依赖
@@ -37,6 +39,9 @@ npm run dev                      # 并行启动 NestJS(3000) + Vite(3010)
 
 - 阅读器：http://localhost:3010
 - API：http://localhost:3000/api/...
+- 数据库：`.env` 里的 `MONGODB_URI`（默认 `mongodb://127.0.0.1:27017/mym-english`）；
+  本机没有本地 mongod 时，可用隧道连线上：
+  `ssh -L 27017:127.0.0.1:27017 ubuntu@<服务器IP> -N`
 
 Vite 开发服务器将 `/api`、`/uploads` 代理到本机 3000 端口。
 
@@ -62,7 +67,7 @@ docker compose up -d --build
 |------|------|
 | PORT | 容器内服务端口，默认 3000 |
 | APP_PORT | 宿主机回环映射端口，默认 8080（仅供本机调试，不对外） |
-| DB_PATH | SQLite 数据库文件路径，生产容器内为 `/data/app.db`（已挂载 `mym_db` 卷持久化） |
+| MONGODB_URI | MongoDB 连接串，本地默认 `mongodb://127.0.0.1:27017/mym-english`；Docker 部署由 compose 注入 `mongodb://mongodb:27017/mym-english` |
 | UPLOAD_DIR | 上传目录，默认 `uploads`（容器内 `/app/uploads`，已挂载 `mym_uploads` 卷持久化） |
 | JWT_SECRET | JWT 签名密钥，**生产必填** |
 | BCRYPT_SALT_ROUNDS | bcrypt 加密轮数，默认 14 |
@@ -72,7 +77,29 @@ docker compose up -d --build
 
 | 服务 | 说明 |
 |------|------|
-| app | NestJS，托管前端产物 + 提供 /api 接口，SQLite 数据卷 `mym_db`，上传目录 `mym_uploads`，映射宿主 8080 |
+| mongodb | MongoDB 7，容器名 `mym-mongo`，数据卷 `mym_mongo`，仅容器网络内可达（不映射宿主端口） |
+| app | NestJS，托管前端产物 + 提供 /api 接口，连接 `mongodb:27017/mym-english`，上传目录 `mym_uploads`，映射宿主 8080 |
+
+### 数据库备份 / 恢复
+
+```bash
+# 备份（容器内执行，输出到容器 /tmp 后拷出）
+docker exec mym-mongo mongodump --db=mym-english --archive=/tmp/mym.gz --gzip
+docker cp mym-mongo:/tmp/mym.gz ./mym-$(date +%F).gz
+
+# 恢复
+docker cp ./mym-2026-09-30.gz mym-mongo:/tmp/mym.gz
+docker exec mym-mongo mongorestore --gzip --archive=/tmp/mym.gz --drop
+```
+
+### 从 SQLite 迁移数据（一次性）
+
+早期版本用 SQLite 存数据，脚本 `scripts/migrate-sqlite-to-mongo.ts` 可把
+`database/database.sqlite` 原样导入 Mongo（保留原整数 id，幂等，可重复执行）：
+
+```bash
+MONGODB_URI=mongodb://127.0.0.1:27017/mym-english npm run migrate:mongo
+```
 
 ## 线上接入（独立入口网关）
 

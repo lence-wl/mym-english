@@ -1,49 +1,63 @@
 // src/word/entities/word.entity.ts
-import {
-  Entity,
-  Column,
-  PrimaryGeneratedColumn,
-  CreateDateColumn,
-  UpdateDateColumn,
-  DeleteDateColumn,
-} from 'typeorm';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { HydratedDocument } from 'mongoose';
 
-@Entity('words')
+export type WordDocument = HydratedDocument<Word>;
+
+/**
+ * 单词/句子
+ * 注：_id 沿用原 SQLite 的自增整数，保证前端接口语义（id 为数字）不变
+ */
+@Schema({
+  collection: 'words',
+  versionKey: false,
+  timestamps: true,
+  toJSON: {
+    transform: (_doc: unknown, ret: Record<string, any>) => {
+      ret.id = ret._id;
+      delete ret._id;
+      return ret;
+    },
+  },
+  toObject: {
+    transform: (_doc: unknown, ret: Record<string, any>) => {
+      ret.id = ret._id;
+      delete ret._id;
+      return ret;
+    },
+  },
+})
 export class Word {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @Prop({ type: Number })
+  _id: number;
 
-  @Column({ length: 600, nullable: false, comment: '单词' })
-  word: string;
+  @Prop({ type: String, required: true, maxlength: 600 })
+  word: string; // 单词
 
-  @Column({ length: 100, nullable: true, comment: '音标' })
-  phonetic?: string;
+  @Prop({ type: String, maxlength: 100 })
+  phonetic?: string; // 音标
 
-  @Column({ type: 'text', nullable: true, comment: '释义' })
-  definition?: string;
+  @Prop({ type: String })
+  definition?: string; // 释义
 
-  @Column({
-    type: 'text',
-    nullable: true,
-    comment: '常用短语搭配（JSON字符串）',
-  })
-  phrases?: string;
+  @Prop({ type: String })
+  phrases?: string; // 常用短语搭配（JSON字符串）
 
-  @Column({ name: 'user_id', nullable: false, comment: '用户ID' })
-  userId: number;
+  @Prop({ type: Number, required: true })
+  userId: number; // 用户ID
 
-  @Column({ name: 'book_id', nullable: true, comment: '关联书籍ID' })
-  bookId?: number;
+  @Prop({ type: Number })
+  bookId?: number; // 关联书籍ID
 
-  @Column({ default: false, nullable: true, comment: '是否是句子' })
-  isSentence?: boolean;
+  @Prop({ type: Boolean, default: false })
+  isSentence?: boolean; // 是否是句子
 
-  @CreateDateColumn({ name: 'created_at', comment: '创建时间' })
   createdAt: Date;
-
-  @UpdateDateColumn({ name: 'updated_at', comment: '更新时间' })
   updatedAt: Date;
 
-  @DeleteDateColumn({ name: 'deleted_at', select: false, comment: '删除时间' })
-  deletedAt?: Date;
+  /** 删除时间（软删除，默认查询不返回） */
+  @Prop({ type: Date, default: null, select: false })
+  deletedAt?: Date | null;
 }
+
+export const WordSchema = SchemaFactory.createForClass(Word);

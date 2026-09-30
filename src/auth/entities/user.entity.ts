@@ -1,12 +1,6 @@
-import {
-  Entity,
-  Column,
-  PrimaryGeneratedColumn,
-  CreateDateColumn,
-  UpdateDateColumn,
-  DeleteDateColumn,
-  Index,
-} from 'typeorm';
+// src/auth/entities/user.entity.ts
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { HydratedDocument } from 'mongoose';
 
 // 定义角色枚举
 export enum UserRole {
@@ -21,132 +15,91 @@ export enum UserLevel {
   l3 = 3,
 }
 
-// 新增：定义 myBookData 数组项的类型（TypeScript 类型约束）
+// myBookData 数组项的类型（TypeScript 类型约束）
 export interface BookReadingData {
   id: string; // 书籍ID（字符串类型）
   location: string; // 阅读位置（字符串类型）
 }
 
-@Entity('users')
-export class User {
-  @PrimaryGeneratedColumn({
-    comment: '用户ID，自增主键',
-  })
-  id: number;
+export type UserDocument = HydratedDocument<User>;
 
-  @Index('idx_username')
-  @Column({
-    unique: true,
-    length: 50,
-    nullable: false,
-    comment: '用户名，唯一标识',
-  })
+/**
+ * 用户
+ * 注：_id 沿用原 SQLite 的自增整数，保证前端接口语义（id 为数字）不变
+ */
+@Schema({
+  collection: 'users',
+  versionKey: false,
+  timestamps: true,
+  toJSON: {
+    transform: (_doc: unknown, ret: Record<string, any>) => {
+      ret.id = ret._id;
+      delete ret._id;
+      return ret;
+    },
+  },
+  toObject: {
+    transform: (_doc: unknown, ret: Record<string, any>) => {
+      ret.id = ret._id;
+      delete ret._id;
+      return ret;
+    },
+  },
+})
+export class User {
+  @Prop({ type: Number })
+  _id: number;
+
+  @Prop({ type: String, required: true, unique: true, maxlength: 50 })
   username: string;
 
-  @Column({
-    nullable: false,
-    select: false,
-    comment: '加密后的密码',
-  })
+  /** 加密后的密码（默认查询不返回） */
+  @Prop({ type: String, required: true, select: false })
   password: string;
 
-  @Index('idx_email')
-  @Column({
-    unique: true,
-    length: 100,
-    nullable: false,
-    comment: '用户邮箱，用于登录和通知',
-  })
+  @Prop({ type: String, required: true, unique: true, maxlength: 100 })
   email: string;
 
-  // 添加角色字段
-  @Column({
-    type: 'varchar',
-    length: 20,
-    default: UserRole.COMMON,
-    comment: '用户角色：admin-管理员，common-普通用户，vip-VIP用户',
-  })
-  role: 'admin' | 'common' | 'vip';
+  @Prop({ type: String, enum: UserRole, default: UserRole.COMMON })
+  role: UserRole;
 
-  // 新增 level 字段：默认 null，类型为 number
-  @Column({
-    type: 'int',
-    nullable: true, // 允许为 null
-    default: UserLevel.l1,
-  })
-  level: number | null; // TypeScript 类型定义（支持 null）
+  @Prop({ type: Number, default: UserLevel.l1 })
+  level: number | null;
 
-  @Column({
-    length: 20,
-    nullable: true,
-    comment: '用户手机号码',
-  })
+  @Prop({ type: String, maxlength: 20 })
   phone?: string;
 
-  @Column({
-    type: 'varchar',
-    length: 100,
-    nullable: true,
-    comment: '用户头像URL',
-  })
+  @Prop({ type: String, maxlength: 100 })
   avatar?: string;
 
-  @Column({
-    nullable: true,
-    type: 'int',
-    comment: '当前正在阅读的书籍的id',
-  })
+  /** 当前正在阅读的书籍 id */
+  @Prop({ type: Number })
   currentBookId?: number;
 
-  @Column({
-    type: 'varchar',
-    length: 100,
-    nullable: true,
-    comment: '当前正在阅读的书籍的位置',
-  })
+  /** 当前正在阅读的书籍的位置 */
+  @Prop({ type: String, maxlength: 100 })
   currentBookLoc?: string;
 
-  @Column({
-    type: 'tinyint',
-    default: 1,
-    comment: '用户状态：1-正常，0-禁用',
-  })
+  /** 用户状态：1-正常，0-禁用 */
+  @Prop({ type: Number, default: 1 })
   status: number;
 
-  @Column({
-    type: 'varchar',
-    default: '',
-    comment: '已经读完的书籍的id',
-  })
+  /** 已经读完的书籍 id */
+  @Prop({ type: String, default: '' })
   completeBookIds: string;
 
   readingBookId: number;
 
-  // ========== 新增 myBookData 字段 ==========
-  @Column({
-    type: 'json', // JSON 类型（适配 SQLite/MySQL/PostgreSQL）
-    nullable: true, // 允许为空
-    default: () => "'[]'", // 默认值为空数组（SQLite 需用单引号包裹 JSON 字符串）
-    comment: '书籍阅读数据：[{id:"书籍ID", location:"阅读位置"}]',
-  })
-  myBookData: BookReadingData[]; // 使用自定义 TS 类型约束数组项结构
+  /** 书籍阅读数据：[{id:"书籍ID", location:"阅读位置"}] */
+  @Prop({ type: Array, default: [] })
+  myBookData: BookReadingData[];
 
-  @CreateDateColumn({
-    name: 'created_at',
-    comment: '创建时间',
-  })
   createdAt: Date;
-
-  @UpdateDateColumn({
-    name: 'updated_at',
-    comment: '更新时间',
-  })
   updatedAt: Date;
 
-  @DeleteDateColumn({
-    name: 'deleted_at',
-    select: false,
-    comment: '删除时间（软删除）',
-  })
-  deletedAt?: Date;
+  /** 删除时间（软删除，默认查询不返回） */
+  @Prop({ type: Date, default: null, select: false })
+  deletedAt?: Date | null;
 }
+
+export const UserSchema = SchemaFactory.createForClass(User);

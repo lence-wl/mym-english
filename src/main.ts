@@ -4,27 +4,9 @@ import { AppModule } from './app.module';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import express from 'express';
-// 1. 引入 TypeORM 的 DataSource（关键：用于手动执行迁移）
-// 引入你的 DataSource 配置（路径按项目实际情况调整）
-import { AppDataSource } from './config/datasource.config';
 
 async function bootstrap() {
-  // 2. 优先初始化数据库连接并执行迁移（在创建 Nest 应用前）
-  try {
-    // 初始化 DataSource
-    await AppDataSource.initialize();
-    console.log('数据库连接成功');
-
-    // 执行所有未执行的迁移（生成表结构）
-    await AppDataSource.runMigrations();
-    console.log('数据库迁移执行成功');
-  } catch (error) {
-    console.error('数据库初始化或迁移失败：', error);
-    // 迁移失败直接退出，避免业务代码报错
-    process.exit(1);
-  }
-
-  // 创建 Nest 应用（迁移执行成功后再启动服务）
+  // 创建 Nest 应用（MongoDB 连接由 MongooseModule 负责）
   const app = await NestFactory.create(AppModule);
 
   // 跨域配置：后端直接托管前端产物，前后端同源，生产环境无需放开跨域；

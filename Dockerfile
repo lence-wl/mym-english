@@ -4,11 +4,6 @@ WORKDIR /app
 
 ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
 
-# sqlite3 需要本地编译，安装构建工具链（Alpine 专属参数）
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories \
-    && apk add --no-cache python3 py3-pip musl-dev linux-headers make gcc g++ \
-    && pip install --no-cache-dir --break-system-packages setuptools
-
 # 后端依赖
 COPY package.json package-lock.json ./
 RUN npm ci

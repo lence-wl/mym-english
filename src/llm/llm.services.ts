@@ -1,9 +1,10 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import request from "src/utils/request";
-import { DictCache } from "./entities/dict-cache.entity";
+import { DictCache, DictCacheDocument } from "./entities/dict-cache.entity";
+import { SequenceService } from '../common/sequence.service';
 
 // 定义回调类型
 export type StreamDataCallback = (content: string) => void;
@@ -37,8 +38,9 @@ export class LLMService {
 
   constructor(
     private readonly configService: ConfigService,
-    @InjectRepository(DictCache)
-    private readonly dictCacheRepo: Repository<DictCache>,
+    @InjectModel(DictCache.name)
+    private readonly dictCacheModel: Model<DictCacheDocument>,
+    private readonly sequenceService: SequenceService,
   ) {}
 
   // 从环境变量读取豆包（火山方舟）API Key
@@ -73,9 +75,12 @@ export class LLMService {
     if (!cacheKey) return null;
 
     try {
-      const hit = await this.dictCacheRepo.findOne({ where: { cacheKey } });
+      const hit = await this.dictCacheModel.findOne({ cacheKey });
       if (!hit) return null;
-      await this.dictCacheRepo.increment({ cacheKey }, 'hitCount', 1);
+      await this.dictCacheModel.updateOne(
+        { cacheKey },
+        { $inc: { hitCount: 1 } },
+      );
       return hit.result;
     } catch (error) {
       // 缓存异常不应影响主流程
@@ -97,7 +102,17 @@ export class LLMService {
     }
 
     try {
-      await this.dictCacheRepo.upsert({ cacheKey, result }, ['cacheKey']);
+      await this.dictCacheModel.updateOne(
+        { cacheKey },
+        {
+          $set: { result },
+          // 仅新增时分配自增 id（更新时该字段被忽略）
+          $setOnInsert: {
+            _id: await this.sequenceService.nextId('dict_cache'),
+          },
+        },
+        { upsert: true },
+      );
     } catch (error) {
       this.logger.warn(`写入释义缓存失败：${(error as Error).message}`);
     }

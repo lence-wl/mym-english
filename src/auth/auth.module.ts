@@ -1,18 +1,25 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { MongooseModule } from '@nestjs/mongoose';
 import { PassportModule } from '@nestjs/passport';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
-import { User } from './entities/user.entity';
+import { User, UserSchema } from './entities/user.entity';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { InitService } from './init.service'; // 导入初始化服务
-import { Book } from '../book/entities/book.entity';
-import { Word } from '../word/entities/word.entity';
+import { Book, BookSchema } from '../book/entities/book.entity';
+import { Word, WordSchema } from '../word/entities/word.entity';
 import { UserService } from '../user/user.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, Book, Word]), PassportModule],
+  imports: [
+    MongooseModule.forFeature([
+      { name: User.name, schema: UserSchema },
+      { name: Book.name, schema: BookSchema },
+      { name: Word.name, schema: WordSchema },
+    ]),
+    PassportModule,
+  ],
   controllers: [AuthController],
   providers: [
     AuthService,

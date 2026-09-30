@@ -1,7 +1,7 @@
 // src/upload/upload.service.ts
 import { Injectable } from '@nestjs/common';
 import { createWriteStream, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { isAbsolute, join } from 'path';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
@@ -19,6 +19,15 @@ export class UploadService {
     if (!existsSync(this.uploadPath)) {
       mkdirSync(this.uploadPath, { recursive: true });
     }
+  }
+
+  /**
+   * 把数据库里存的 filePath（仅文件名）解析为绝对路径
+   * @param filePath 数据库中的 filePath 字段
+   */
+  resolveFilePath(filePath: string): string {
+    // 兼容历史上可能存过绝对路径的数据
+    return isAbsolute(filePath) ? filePath : join(this.uploadPath, filePath);
   }
 
   /**

@@ -1,4 +1,20 @@
 services:
+  mongodb:
+    image: docker.1ms.run/library/mongo:7
+    container_name: mym-mongo
+    restart: always
+    # 仅容器网络内可达（app 通过服务名 mongodb 连接），不映射宿主端口
+    environment:
+      MONGO_INITDB_DATABASE: mym-english
+    volumes:
+      - mym_mongo:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   app:
     build: .
     container_name: mym-app
@@ -13,11 +29,14 @@ services:
         # 网关侧用的唯一别名（各项目都叫 app，必须在 web 网络上区分开）
         aliases:
           - mym-app
+    depends_on:
+      mongodb:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: 3000
-      # SQLite 数据库文件（配合 mym_db 卷持久化）
-      DB_PATH: /data/app.db
+      # MongoDB 连接串（容器网络内直连 mongodb 服务）
+      MONGODB_URI: mongodb://mongodb:27017/mym-english
       # 上传目录（相对 /app，配合 mym_uploads 卷持久化）
       UPLOAD_DIR: uploads
       # 以下必须由宿主 .env 提供
@@ -37,11 +56,10 @@ services:
       TTS_CACHE_MAX_MB: ${TTS_CACHE_MAX_MB:-500}
       CAPTCHA_SECRET_KEY: ${CAPTCHA_SECRET_KEY:-please-change-me-32-bytes-secret}
     volumes:
-      - mym_db:/data
       - mym_uploads:/app/uploads
 
 volumes:
-  mym_db:
+  mym_mongo:
   mym_uploads:
 
 networks:
