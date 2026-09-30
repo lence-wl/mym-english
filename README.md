@@ -121,8 +121,8 @@ docker exec web-gateway nginx -t && docker exec web-gateway nginx -s reload
 
 # 4) 签发证书（DNS 解析生效后再跑；80 由网关持有，不能用 --standalone）
 sudo mkdir -p /var/www/certbot
-sudo certbot certonly --webroot -w /var/www/certbot -d mym-english.com -d www.mym-english.com
-# 证书会落到 /etc/letsencrypt/live/mym-english.com/，与网关 conf 里的路径一致；
+sudo certbot certonly --webroot -w /var/www/certbot -d mym.yangyi-tech.online
+# 证书会落到 /etc/letsencrypt/live/mym.yangyi-tech.online/，与网关 conf 里的路径一致；
 # 自动续期（deploy hook）等细节见 web-gateway/README.md「更换 / 续期证书」
 
 # 5) 启用 443
