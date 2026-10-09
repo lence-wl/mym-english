@@ -37,6 +37,36 @@ async function bootstrap() {
   app.use('/uploads', express.static(uploadPath));
   console.log(`静态文件服务已启用，路径：${uploadPath}`);
 
+  // 移动端前端（PWA）构建产物，托管在 /m 路径下。
+  // 必须注册在桌面端静态托管之前，否则 /m 会被桌面端 SPA 回退吞掉。
+  const mobileDist = join(process.cwd(), 'frontend-mobile', 'dist');
+  if (existsSync(mobileDist)) {
+    const mobileAssetsDir = join(mobileDist, 'assets');
+    app.use(
+      '/m',
+      express.static(mobileDist, {
+        setHeaders: (res, filePath) => {
+          if (filePath.startsWith(mobileAssetsDir)) {
+            // 产物文件名带内容 hash → 长期强缓存
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          } else {
+            // 入口 HTML / manifest / sw.js 必须实时校验，避免 PWA 一直使用旧外壳
+            res.setHeader('Cache-Control', 'no-cache');
+          }
+        },
+      }),
+    );
+    // 移动端 SPA 路由刷新回退
+    app.use((req, res, next) => {
+      if (!req.path.startsWith('/m')) {
+        return next();
+      }
+      res.setHeader('Cache-Control', 'no-cache');
+      res.sendFile(join(mobileDist, 'index.html'));
+    });
+    console.log(`移动端静态托管已启用，路径：${mobileDist}（访问 /m/）`);
+  }
+
   // 生产环境：托管前端构建产物 frontend/dist，SPA 路由刷新回退 index.html
   const frontendDist = join(process.cwd(), 'frontend', 'dist');
   if (existsSync(frontendDist)) {
@@ -57,7 +87,11 @@ async function bootstrap() {
       }),
     );
     app.use((req, res, next) => {
-      if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
+      if (
+        req.path.startsWith('/api') ||
+        req.path.startsWith('/uploads') ||
+        req.path.startsWith('/m')
+      ) {
         return next();
       }
       res.setHeader('Cache-Control', 'no-cache');

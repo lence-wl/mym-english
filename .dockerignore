@@ -1,7 +1,9 @@
 node_modules
 frontend/node_modules
-dist
 frontend/dist
+frontend-mobile/node_modules
+frontend-mobile/dist
+dist
 database
 uploads
 .env

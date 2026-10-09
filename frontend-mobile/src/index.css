@@ -1,0 +1,44 @@
+@import 'tailwindcss';
+
+:root {
+  --global-bg-color: #f9f7f3;
+  /* 底部 Tab 栏高度（不含安全区） */
+  --tabbar-height: 54px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  /* 禁止文档级滚动：滚动一律交给页面内部的滚动容器。
+     注意：iOS 已安装 PWA（standalone）下，文档「不可滚动」会触发系统的
+     letterbox 缺陷（窗口按状态栏高度缩小、底部留黑带），因此 index.html 中用
+     内联样式在该场景下改回 overflow-y: auto 并放置隐形撑高块来解锁。 */
+  overflow: hidden;
+  background: var(--global-bg-color);
+  color: #374151;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue',
+    'Microsoft YaHei', sans-serif;
+  /* 移动端去掉点击高亮与长按菜单 */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+#root {
+  height: 100%;
+}
+
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 隐藏滚动条但保留滚动能力 */
+.scroll-y {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}

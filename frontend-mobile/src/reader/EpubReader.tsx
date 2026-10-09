@@ -1,0 +1,406 @@
+import { useEffect, useRef } from 'react'
+import Epub, { type Book, type Contents, type Rendition } from 'epubjs'
+import { epubThemes } from '../theme/EpubThemeConfig'
+
+interface EpubReaderProps {
+  /** epub 地址：/uploads/xxx */
+  url: string
+  /** 初始阅读位置（cfi） */
+  initialLocation?: string | number | null
+  fontSize: number
+  themeKey: string
+  /** 阅读位置变化（cfi） */
+  onRelocated: (cfi: string) => void
+  /** 长按查词 / 长按拖动划词，回传被查的文本（单词或选段） */
+  onLookup: (text: string) => void
+  /** 单击屏幕中间（用于切换顶栏/底栏显隐） */
+  onCenterTap: () => void
+  /** 书籍解析完成，可用于生成 locations */
+  onBookReady?: (book: Book, rendition: Rendition) => void
+}
+
+const TAP_ZONE = 0.3 // 左右各 30% 为翻页热区
+const LONG_PRESS_MS = 450 // 长按判定时长（松手早于它视为轻点）
+const MOVE_TOLERANCE = 10 // 长按期间允许的位移，超出即视为滑动
+const ARM_DEAD_ZONE = 16 // 长按命中词后的死区：松手前位移小于它 → 始终算查词，避免手抖变成选段
+const HIGHLIGHT_COLOR = 'rgba(255, 214, 102, 0.55)' // 选中底色：荧光笔黄，深浅主题下都可读
+const HIGHLIGHT_UNDERLINE = 'rgba(230, 150, 0, 0.9)' // 选中下划线：底色之外再加一道，低对比设备也看得清
+const OVERLAY_ID = 'lookup-overlay' // 兜底色块容器的 id
+const isWordChar = (ch?: string) => !!ch && /[A-Za-z'’-]/.test(ch)
+
+/**
+ * 移动端 epub 阅读内核。
+ *
+ * 与桌面端的差异（桌面端为 scrolled + 连续滚动，且依赖 mousedown/mouseup）：
+ * 1. 采用 paginated 单页横向翻页，更贴近手机阅读习惯；
+ * 2. 正文禁用原生选择（见 EpubThemeConfig），查词查句都改成自研手势：
+ *    长按不动 = 查词，长按后继续拖动划词 = 查句，系统不会弹出拷贝/查询/翻译菜单；
+ * 3. 监听 resize/orientationchange，横竖屏切换后重新排版。
+ */
+const EpubReader = ({
+  url,
+  initialLocation,
+  fontSize,
+  themeKey,
+  onRelocated,
+  onLookup,
+  onCenterTap,
+  onBookReady,
+}: EpubReaderProps) => {
+  const holderRef = useRef<HTMLDivElement>(null)
+  const bookRef = useRef<Book | null>(null)
+  const renditionRef = useRef<Rendition | null>(null)
+  // 用 ref 保存回调，避免因依赖变化重建 state
+  const cbRef = useRef({ onRelocated, onLookup, onCenterTap, onBookReady })
+  cbRef.current = { onRelocated, onLookup, onCenterTap, onBookReady }
+
+  // 内容加载时挂载触屏交互（翻页 / 长按查词 / 轻点）
+  const attachContentHandlers = (contents: Contents) => {
+    const win = contents.window as any
+    const doc = contents.document
+    if (!doc) return
+
+    let startX = 0
+    let startY = 0
+    let startTime = 0
+    let lastTouchAt = 0
+    let pressTimer: ReturnType<typeof setTimeout> | null = null
+    /** 长按已命中单词，进入划词状态（此时松手 = 查词，继续拖动 = 查句/查选段） */
+    let armed = false
+    /** 长按命中时的落点，用于计算死区 */
+    let armX = 0
+    let armY = 0
+    /** 划词锚点（落在词首） */
+    let anchor: { node: Node; offset: number } | null = null
+    /** 当前划中的范围 */
+    let selRange: Range | null = null
+
+    const turn = (dir: 'prev' | 'next') => {
+      const r = renditionRef.current
+      if (!r) return
+      if (dir === 'next') r.next()
+      else r.prev()
+    }
+
+    /**
+     * 分页模式下 epubjs 会把 iframe 拉宽到「所有列的总宽」并整体左移，用平移来换页。
+     * 因此 iframe 内的 clientX 不是可视坐标，必须叠加 iframe 相对外层容器的左偏移才能换算回来。
+     * 注意：caretRangeFromPoint 与触摸事件同处 iframe 坐标系，取词时不需要这层换算。
+     */
+    const visiblePoint = (x: number) => {
+      const rect = (win?.frameElement as HTMLElement | null)?.getBoundingClientRect?.()
+      const offsetX = rect ? -rect.left : 0
+      const width = holderRef.current?.clientWidth || (rect ? rect.width : 320)
+      return { x: x - offsetX, width }
+    }
+
+    /**
+     * 命中点所在的单词范围（Range 锚在词首）。
+     * 正文已禁用原生选择，所以用 caretRangeFromPoint 自行定位。
+     */
+    const wordRangeAt = (x: number, y: number) => {
+      const caret = doc.caretRangeFromPoint?.(x, y)
+      const node = caret?.startContainer
+      if (!node || node.nodeType !== Node.TEXT_NODE) return null
+
+      const text = node.textContent || ''
+      // 点在单词右侧边界之后时向左退一格
+      let at = caret!.startOffset
+      if (!isWordChar(text[at]) && isWordChar(text[at - 1])) at -= 1
+      if (!isWordChar(text[at])) return null
+
+      let s = at
+      let e = at + 1
+      while (s > 0 && isWordChar(text[s - 1])) s--
+      while (e < text.length && isWordChar(text[e])) e++
+
+      const range = doc.createRange()
+      range.setStart(node, s)
+      range.setEnd(node, e)
+      return range
+    }
+
+    /** 从锚点拖到手指当前点；末端补到词尾，避免把单词切成两半 */
+    const rangeTo = (from: { node: Node; offset: number }, x: number, y: number) => {
+      const caret = doc.caretRangeFromPoint?.(x, y)
+      const node = caret?.startContainer
+      if (!node || node.nodeType !== Node.TEXT_NODE) return null
+
+      const text = node.textContent || ''
+      let endOffset = caret!.startOffset
+      while (endOffset < text.length && isWordChar(text[endOffset])) endOffset++
+
+      const range = doc.createRange()
+      range.setStart(from.node, from.offset)
+      range.setEnd(node, endOffset)
+      // 反向拖动时 start 会晚于 end，交换回来
+      if (range.collapsed && (from.node !== node || from.offset !== endOffset)) {
+        range.setStart(node, endOffset)
+        range.setEnd(from.node, from.offset)
+      }
+      return range
+    }
+
+    /**
+     * 划词高亮：用绝对定位色块实现，不依赖 CSS Custom Highlight API。
+     *
+     * 为什么弃用 ::highlight()：真机 iOS 上 API 注册成功（CSS.highlights 里能查到、
+     * size 为 1），但 WebKit 就是不绘制，怀疑与正文 user-select:none 有关。色块是纯 DOM
+     * + 基础 CSS，兼容性最好；它同样不产生原生 Selection，所以不会触发系统菜单。
+     * 坐标取自 range.getClientRects()，与文本同处 iframe 视口坐标系，无需换算。
+     */
+    const setHighlight = (range: Range | null) => {
+      let layer = doc.getElementById(OVERLAY_ID) as HTMLElement | null
+      if (!range) {
+        if (layer) layer.textContent = ''
+        return
+      }
+      if (!layer) {
+        layer = doc.createElement('div')
+        layer.id = OVERLAY_ID
+        layer.style.cssText =
+          'position:fixed;left:0;top:0;right:0;bottom:0;pointer-events:none;z-index:2147483647'
+        doc.documentElement.appendChild(layer)
+      }
+      layer.textContent = ''
+      const rects = Array.from(range.getClientRects())
+      rects.forEach((r) => {
+        const box = doc.createElement('span')
+        box.style.cssText =
+          `position:absolute;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;` +
+          `background:${HIGHLIGHT_COLOR};border-bottom:2px solid ${HIGHLIGHT_UNDERLINE};border-radius:2px`
+        layer!.appendChild(box)
+      })
+    }
+
+    const clearPress = () => {
+      if (pressTimer) {
+        clearTimeout(pressTimer)
+        pressTimer = null
+      }
+    }
+
+    const handleStart = (x: number, y: number) => {
+      startX = x
+      startY = y
+      startTime = Date.now()
+      armed = false
+      anchor = null
+      selRange = null
+      setHighlight(null)
+      clearPress()
+      // 长按 450ms 命中单词 -> 高亮并进入划词状态：
+      // 松手不动 = 查词；继续拖动 = 扩大范围，松手查句/查选段。
+      pressTimer = setTimeout(() => {
+        pressTimer = null
+        const range = wordRangeAt(x, y)
+        if (!range) return
+        armed = true
+        armX = x
+        armY = y
+        anchor = { node: range.startContainer, offset: range.startOffset }
+        selRange = range
+        setHighlight(range)
+      }, LONG_PRESS_MS)
+    }
+
+    const handleMove = (x: number, y: number) => {
+      // 划词中：跟随手指扩大选区，不做取消判断
+      if (armed && anchor) {
+        // 死区：刚命中词后的小幅抖动仍按查词处理，超出阈值才真正开始选段
+        if (Math.hypot(x - armX, y - armY) < ARM_DEAD_ZONE) return
+        const range = rangeTo(anchor, x, y)
+        if (range) {
+          selRange = range
+          setHighlight(range)
+        }
+        return
+      }
+      if (Math.abs(x - startX) > MOVE_TOLERANCE || Math.abs(y - startY) > MOVE_TOLERANCE) clearPress()
+    }
+
+    const handleEnd = (x: number, y: number) => {
+      clearPress()
+      // 长按手势已接管本次触摸：松手时按划中的文本查询，不再翻页/切工具栏
+      if (armed) {
+        armed = false
+        anchor = null
+        const text = (selRange?.toString() || '').replace(/\s+/g, ' ').trim()
+        selRange = null
+        if (text) cbRef.current.onLookup(text)
+        return
+      }
+
+      const dx = x - startX
+      const dy = y - startY
+      const dt = Date.now() - startTime
+
+      // 横向轻扫
+      if (Math.abs(dx) > 50 && Math.abs(dy) < 40 && dt < 800) {
+        turn(dx < 0 ? 'next' : 'prev')
+        return
+      }
+      // 轻点
+      if (dt < 350 && Math.abs(dx) < 20 && Math.abs(dy) < 20) {
+        const { x: vx, width } = visiblePoint(x)
+        if (vx < width * TAP_ZONE) turn('prev')
+        else if (vx > width * (1 - TAP_ZONE)) turn('next')
+        else cbRef.current.onCenterTap()
+      }
+    }
+
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0]
+      if (!t) return
+      // 兜底阻断 WebKit 的原生选择/呼叫菜单机器（正文样式已禁用选择，这里再压一层）。
+      // 书内链接保持默认行为，避免影响跳转。
+      if (!(e.target as Element | null)?.closest?.('a[href]')) e.preventDefault()
+      handleStart(t.clientX, t.clientY)
+    }
+    const onTouchMove = (e: TouchEvent) => {
+      const t = e.touches[0]
+      if (t) handleMove(t.clientX, t.clientY)
+    }
+    const onTouchEnd = (e: TouchEvent) => {
+      const t = e.changedTouches[0]
+      if (!t) return
+      lastTouchAt = Date.now()
+      handleEnd(t.clientX, t.clientY)
+    }
+    // 非触屏环境（桌面浏览器 / 触控板）走同一套手势逻辑
+    const onMouseDown = (e: MouseEvent) => {
+      handleStart(e.clientX, e.clientY)
+    }
+    const onMouseMove = (e: MouseEvent) => {
+      handleMove(e.clientX, e.clientY)
+    }
+    const onMouseUp = (e: MouseEvent) => {
+      // 触屏设备 touchend 后会补发合成 mouse 事件，忽略以免重复翻页
+      if (Date.now() - lastTouchAt < 600) return
+      handleEnd(e.clientX, e.clientY)
+    }
+    // 原生选择、拖拽与长按上下文菜单一律拦掉（Android 长按同样会弹菜单）
+    const blockDefault = (e: Event) => e.preventDefault()
+    const onContextMenu = blockDefault
+
+    doc.addEventListener('touchstart', onTouchStart, { passive: false })
+    doc.addEventListener('touchmove', onTouchMove, { passive: false })
+    doc.addEventListener('touchend', onTouchEnd, { passive: true })
+    doc.addEventListener('mousedown', onMouseDown)
+    doc.addEventListener('mousemove', onMouseMove)
+    doc.addEventListener('mouseup', onMouseUp)
+    doc.addEventListener('contextmenu', onContextMenu)
+    doc.addEventListener('selectstart', blockDefault)
+    doc.addEventListener('dragstart', blockDefault)
+
+    return () => {
+      clearPress()
+      setHighlight(null)
+      doc.removeEventListener('touchstart', onTouchStart)
+      doc.removeEventListener('touchmove', onTouchMove)
+      doc.removeEventListener('touchend', onTouchEnd)
+      doc.removeEventListener('mousedown', onMouseDown)
+      doc.removeEventListener('mousemove', onMouseMove)
+      doc.removeEventListener('mouseup', onMouseUp)
+      doc.removeEventListener('contextmenu', onContextMenu)
+      doc.removeEventListener('selectstart', blockDefault)
+      doc.removeEventListener('dragstart', blockDefault)
+    }
+  }
+
+  // 初始化（仅在 url 变化时重建）
+  useEffect(() => {
+    if (!holderRef.current || !url) return
+    let disposed = false
+
+    const book = Epub(url, {
+      requestCredentials: 'include',
+      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      allowScriptedContent: true,
+    } as any)
+    bookRef.current = book
+
+    const rendition = book.renderTo(holderRef.current, {
+      width: '100%',
+      height: '100%',
+      flow: 'paginated',
+      manager: 'default',
+      spread: 'none',
+      allowScriptedContent: true,
+    })
+    renditionRef.current = rendition
+
+    // 注册主题
+    Object.entries(epubThemes).forEach(([tag, styles]) => {
+      rendition.themes.register(tag, styles as any)
+    })
+    rendition.themes.select(themeKey)
+    rendition.themes.fontSize(`${fontSize}px`)
+
+    // 触屏交互
+    rendition.hooks.content.register((contents: Contents) => {
+      return attachContentHandlers(contents) as any
+    })
+
+    // 阅读位置变化
+    rendition.on('relocated', (loc: any) => {
+      if (loc?.start?.cfi) cbRef.current.onRelocated(loc.start.cfi)
+    })
+
+    book.loaded.navigation.then(() => {
+      if (disposed) return
+      cbRef.current.onBookReady?.(book, rendition)
+    })
+
+    const startLocation =
+      initialLocation && String(initialLocation).length ? (initialLocation as any) : undefined
+    rendition.display(startLocation)
+
+    // 横竖屏 / 尺寸变化后重新排版
+    const relayout = () => {
+      const node = holderRef.current
+      const r = renditionRef.current
+      // 渲染内核未就绪时 manager 尚未创建，此时 resize 会抛错，需跳过
+      if (!node || !r || typeof (r as any).manager?.resize !== 'function') return
+      r.resize(node.clientWidth, node.clientHeight)
+    }
+    window.addEventListener('resize', relayout)
+    window.addEventListener('orientationchange', relayout)
+    const ro = new ResizeObserver(relayout)
+    ro.observe(holderRef.current)
+    // 内核 start 完成后 manager 才可用，此时补一次重排（ResizeObserver 首次回调会被上面的守卫跳过）
+    ;(rendition.started as any)
+      ?.then(() => {
+        if (disposed) return
+        relayout()
+      })
+      .catch(() => {})
+
+    return () => {
+      disposed = true
+      window.removeEventListener('resize', relayout)
+      window.removeEventListener('orientationchange', relayout)
+      ro.disconnect()
+      renditionRef.current?.destroy()
+      renditionRef.current = null
+      book.destroy()
+      bookRef.current = null
+    }
+    // initialLocation 只在首次加载时生效，故不加入依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url])
+
+  // 主题切换
+  useEffect(() => {
+    renditionRef.current?.themes.select(themeKey)
+  }, [themeKey])
+
+  // 字号调整（不重建实例，保留阅读位置）
+  useEffect(() => {
+    renditionRef.current?.themes.fontSize(`${fontSize}px`)
+  }, [fontSize])
+
+  return <div ref={holderRef} className="h-full w-full" />
+}
+
+export default EpubReader

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/m/icon.png" />
+    <link rel="apple-touch-icon" href="/m/apple-touch-icon.png" />
+    <!-- 移动端唯一 viewport：禁止缩放 + 适配刘海屏安全区 -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#6d8b74" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="蔓阅莓" />
+    <meta name="format-detection" content="telephone=no" />
+    <title>蔓阅莓</title>
+    <style>
+      html,
+      body,
+      #root {
+        width: 100%;
+        height: 100%;
+        overscroll-behavior-y: none;
+      }
+
+      /*
+        iOS 已安装 PWA（standalone）的 letterbox 缺陷（WebKit bug 313800）：
+        若文档在启动瞬间「不可滚动」，iOS 会把窗口按状态栏高度整体缩小
+        （iPhone 16 Pro 实测：屏幕 874，而窗口只有 812），于是在物理屏幕底部
+        留下一条 62px、CSS 无法布局其上的黑带 —— 表现为「页面撑不到屏幕底部」。
+        此时 100% / 100dvh / 100svh 都只等于 812，只有 100lvh / 100vh 等于 874。
+
+        解法：让文档保持可滚动（放一个 100lvh 高的隐形撑高块），iOS 便会把窗口
+        撑满整屏；外壳用 position: fixed 固定，因此文档滚动不会带动界面。
+        必须内联在 <head>：iOS 在启动时就采样文档，等 CSS 包加载回来已经太晚。
+      */
+      @media (display-mode: standalone) and (pointer: coarse) {
+        @supports (-webkit-touch-callout: none) {
+          :root,
+          html body {
+            height: auto;
+            min-height: 100%;
+            overflow-y: auto;
+          }
+          html body::after {
+            content: '';
+            display: block;
+            height: 100vh;
+            height: 100lvh;
+            pointer-events: none;
+          }
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -8,13 +8,15 @@ ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# 前端依赖（pnpm；锁文件 pnpm-lock.yaml 为 v9.0，固定 pnpm 9 以免高版本改写锁文件）
+# 前端依赖（pnpm；桌面端与移动端锁文件均为 v9.0，固定 pnpm 9 以免高版本改写锁文件）
 # 注：前端 echarts@6 与 echarts-wordcloud@2 存在 peer 冲突，npm 无法解析，必须用 pnpm
 COPY frontend/package.json frontend/pnpm-lock.yaml ./frontend/
+COPY frontend-mobile/package.json frontend-mobile/pnpm-lock.yaml frontend-mobile/pnpm-workspace.yaml ./frontend-mobile/
 RUN npm install -g pnpm@9 \
-    && cd frontend && pnpm install --frozen-lockfile
+    && cd frontend && pnpm install --frozen-lockfile \
+    && cd ../frontend-mobile && pnpm install --frozen-lockfile
 
-# 复制源码并构建（nest build -> dist/，vite build -> frontend/dist/）
+# 复制源码并构建（nest build -> dist/，vite build -> frontend/dist/ 与 frontend-mobile/dist/）
 COPY . .
 RUN npm run build
 
@@ -26,6 +28,7 @@ RUN apk add --no-cache tini
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/frontend/dist ./frontend/dist
+COPY --from=builder /app/frontend-mobile/dist ./frontend-mobile/dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 

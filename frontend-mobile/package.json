@@ -1,0 +1,41 @@
+{
+  "name": "mym-english-mobile",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "蔓阅莓移动端（PWA）",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^6.1.0",
+    "@ant-design/v5-patch-for-react-19": "^1.0.3",
+    "@microsoft/fetch-event-source": "^2.0.1",
+    "@remixicon/react": "^4.7.0",
+    "antd": "^5.28.1",
+    "axios": "^1.13.0",
+    "chroma-js": "^3.1.2",
+    "epubjs": "^0.3.93",
+    "lodash": "^4.17.21",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.3.0",
+    "zustand": "^5.0.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.13",
+    "@types/chroma-js": "^3.1.2",
+    "@types/lodash": "^4.17.20",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.0.13",
+    "typescript": "^5.8.2",
+    "vite": "^7.1.12",
+    "vite-plugin-pwa": "^1.0.4",
+    "workbox-window": "^7.3.0"
+  }
+}

@@ -1,6 +1,7 @@
 import { Request, Body, Controller, Post, UseGuards, Res, HttpStatus } from '@nestjs/common';
 import type { Response } from 'express';
 import { LLMService, StreamDataCallback, StreamCompleteCallback, StreamErrorCallback } from './llm.services';
+import { GrammarRequestDto } from './dto/grammar-request.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('dbmd')
@@ -16,6 +17,110 @@ export class LLMController {
         const user = req.user;
         // 非流式接口返回普通对象，拦截器会自动包装
         return this.llmService.getWordDataFormLLM(body, user.id);
+    }
+
+    /**
+     * 语法解析（流式）：老师口吻的语法讲解，纯文本增量推送
+     */
+    @Post('grammar/stream')
+    async getGrammarStream(
+        @Body() body: GrammarRequestDto,
+        @Res() res: Response,
+        @Request() req: any
+    ) {
+        let abortController: AbortController | null = null;
+        // 设置SSE响应头（关键：确保流式输出格式）
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no'); // 禁用Nginx缓冲
+        res.status(HttpStatus.OK);
+
+        if (!body?.text?.trim()) {
+            res.write(`data: ${JSON.stringify({
+                code: 400,
+                success: false,
+                message: '待分析的文本不能为空',
+                data: null
+            })}\n\n`);
+            res.write(`data: [DONE]\n\n`);
+            res.end();
+            return;
+        }
+
+        // 命中缓存：一次性把完整结果推完，不再调用大模型（省费用）
+        const cached = await this.llmService.getCachedDict(body.text, 'grammar3');
+        if (cached) {
+            res.write(`data: ${JSON.stringify({
+                code: 200,
+                success: true,
+                message: '数据推送中',
+                data: cached,
+                timestamp: Date.now()
+            })}\n\n`);
+            res.write(`data: [DONE]\n\n`);
+            res.end();
+            return;
+        }
+
+        // 累计本次流式返回的完整内容，结束时写入缓存
+        let streamedContent = '';
+
+        const onData: StreamDataCallback = (content) => {
+            streamedContent += content;
+            try {
+                res.write(`data: ${JSON.stringify({
+                    code: 200,
+                    success: true,
+                    message: '数据推送中',
+                    data: content,
+                    timestamp: Date.now()
+                })}\n\n`);
+            } catch {
+                // 前端断开连接，中断流
+                abortController?.abort();
+            }
+        };
+
+        const onComplete: StreamCompleteCallback = () => {
+            // 流正常结束，写入语法解析缓存
+            void this.llmService.saveDictCache(body.text, streamedContent, 'grammar3');
+
+            res.write(`data: ${JSON.stringify({
+                code: 200,
+                success: true,
+                message: '流式请求完成',
+                data: null,
+                timestamp: Date.now()
+            })}\n\n`);
+            res.write(`data: [DONE]\n\n`);
+            res.end();
+        };
+
+        const onError: StreamErrorCallback = (error) => {
+            res.write(`data: ${JSON.stringify({
+                code: 500,
+                success: false,
+                message: error.message,
+                data: null,
+                timestamp: Date.now()
+            })}\n\n`);
+            res.write(`data: [DONE]\n\n`);
+            res.end();
+        };
+
+        abortController = this.llmService.getGrammarFromLLMStream(
+            body.text,
+            req.user.id,
+            onData,
+            onComplete,
+            onError
+        );
+
+        // 前端断开连接时中断流
+        res.on('close', () => {
+            abortController?.abort();
+        });
     }
 
     // 流式接口（跳过统一响应拦截器）

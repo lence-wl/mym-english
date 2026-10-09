@@ -27,6 +27,15 @@ const GENERATION_CONFIG = {
   responseFormat: { type: 'json_object' },
 };
 
+// 语法解析系统提示：用老师讲给学生听的口吻做通俗讲解，不输出成分标注树
+const GRAMMAR_SYSTEM_PROMPT = '你是一名英语老师，正在给一个学生讲句子。对用户给出的英文片段，用亲切、口语化的中文把它的语法讲明白，就像面对面讲课一样。直接输出讲解内容本身，不要输出 JSON、不要代码块、不要 Markdown 标题或列表符号。格式：第一行用一句话说明这句话整体在说什么，不要加任何前缀标记；然后空一行；再写讲解正文，2 到 4 个自然段，段落之间用换行分隔。讲解正文的要求：1.先用一句话点出主干，说清谁在做什么、或什么怎么样；2.再顺着原文顺序讲各个修饰成分和从句起什么作用、修饰的是谁，让读者明白为什么这样理解；3.最后提醒一个容易看错或值得记住的点。全文控制在 450 字以内。';
+
+// 讲解正文比释义长，单独放宽上限；纯文本输出，不用 JSON 模式（流式下边收边渲染）
+const GRAMMAR_CONFIG = {
+  maxCompletionTokens: 900,
+  temperature: 0.2,
+};
+
 // 首尾的装饰符号：空白、引号、括号、句读等（只用于缓存键，不影响发给模型的原文本）
 const EDGE_SYMBOLS = '\\s"\u201c\u201d\u2018\u2019\'()（）\\[\\]{}<>《》「」.,!?;:。，、！？；：…—–\\-·';
 const LEADING_SYMBOLS = new RegExp(`^[${EDGE_SYMBOLS}]+`);
@@ -59,19 +68,21 @@ export class LLMService {
 
   // 归一化查询文本作为缓存键：去首尾空格、合并连续空格、去首尾标点、转小写
   // 避免大小写、多余空格、句读符号导致重复调用大模型
-  private buildCacheKey(text: string): string {
+  // scope 用于隔离同一文本的不同用途（dict 释义 / grammar 语法解析），避免互相覆盖
+  private buildCacheKey(text: string, scope = 'dict'): string {
     const normalized = (text || '').trim().replace(/\s+/g, ' ');
     const stripped = normalized
       .replace(LEADING_SYMBOLS, '')
       .replace(TRAILING_SYMBOLS, '')
       .trim();
     // 整串都是符号时退回原文本，避免不同内容塌缩成同一个空键
-    return (stripped || normalized).toLowerCase();
+    const base = (stripped || normalized).toLowerCase();
+    return scope === 'dict' ? base : `${scope}:${base}`;
   }
 
-  /** 读取释义缓存：命中则不再调用大模型 */
-  async getCachedDict(text: string): Promise<string | null> {
-    const cacheKey = this.buildCacheKey(text);
+  /** 读取缓存：命中则不再调用大模型 */
+  async getCachedDict(text: string, scope = 'dict'): Promise<string | null> {
+    const cacheKey = this.buildCacheKey(text, scope);
     if (!cacheKey) return null;
 
     try {
@@ -89,16 +100,19 @@ export class LLMService {
     }
   }
 
-  /** 写入释义缓存：只缓存合法 JSON，避免把坏结果固化下来 */
-  async saveDictCache(text: string, result: string): Promise<void> {
-    const cacheKey = this.buildCacheKey(text);
+  /** 写入缓存：释义只缓存合法 JSON；语法解析是纯文本，跳过 JSON 校验 */
+  async saveDictCache(text: string, result: string, scope = 'dict'): Promise<void> {
+    const cacheKey = this.buildCacheKey(text, scope);
     if (!cacheKey || !result) return;
 
-    try {
-      JSON.parse(result);
-    } catch {
-      // 模型返回的不是合法 JSON，缓存无意义（下次仍会重新询问）
-      return;
+    // 释义走 JSON 模式，坏结果不固化；语法解析是自由散文，无需校验
+    if (scope === 'dict') {
+      try {
+        JSON.parse(result);
+      } catch {
+        // 模型返回的不是合法 JSON，缓存无意义（下次仍会重新询问）
+        return;
+      }
     }
 
     try {
@@ -185,6 +199,129 @@ export class LLMService {
         `非流式请求失败：${upstream?.code ? `[${upstream.code}] ` : ''}${detail}`
       );
     }
+  }
+
+  /**
+   * 语法解析（流式）：对选中的片段生成老师口吻的语法讲解。
+   * 纯文本输出、不开 JSON 模式：正文本来就是自由散文，前端才能边收边渲染。
+   * 与释义共用 dict_cache 集合，用 grammar3 前缀隔离缓存键。
+   * 前缀从 grammar2 换成 grammar3：返回结构（JSON -> 纯文本）变了，旧缓存不能再复用。
+   */
+  getGrammarFromLLMStream(
+    text: string,
+    userId: string | number,
+    onData: StreamDataCallback,
+    onComplete: StreamCompleteCallback,
+    onError: StreamErrorCallback
+  ): AbortController {
+    const str = text?.trim() || '';
+    const standardizedUserId = String(userId);
+
+    // Node.js 原生 AbortController，前端断开时用来中断上游请求
+    const abortController = new AbortController();
+    const signal = abortController.signal;
+
+    // 密钥缺失时通过回调报错，避免同步抛出破坏调用方流程
+    let apiKey: string;
+    try {
+      apiKey = this.getApiKey();
+    } catch (error) {
+      onError(error as Error);
+      return abortController;
+    }
+
+    if (!str) {
+      onError(new Error('待分析的文本不能为空'));
+      return abortController;
+    }
+
+    const requestBody = {
+      messages: [
+        { role: 'system', content: [{ type: 'text', text: GRAMMAR_SYSTEM_PROMPT }] },
+        { role: 'user', content: [{ type: 'text', text: str }] }
+      ],
+      model: this.getModel(),
+      max_completion_tokens: GRAMMAR_CONFIG.maxCompletionTokens,
+      temperature: GRAMMAR_CONFIG.temperature,
+      stream: true,
+      user_id: standardizedUserId,
+      thinking: { type: 'disabled' },
+      cache_config: { enable: true, cache_ttl: 86400, cache_key: 'llm_grammar_fixed_system_prompt' },
+      prompt_cache_strategy: 'auto'
+    };
+
+    fetch(API_CONFIG.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(requestBody),
+      signal
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`大模型接口返回错误：${response.status} ${response.statusText}`);
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error('无法获取流式响应读取器');
+        }
+
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        const readStream = async (): Promise<void> => {
+          try {
+            const { done, value } = await reader.read();
+
+            // 流结束
+            if (done) {
+              onComplete();
+              return;
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || ''; // 保留未完成的行
+
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+              if (!trimmedLine || trimmedLine === '[DONE]') continue;
+
+              const jsonStr = trimmedLine.startsWith('data:')
+                ? trimmedLine.replace(/^data: /, '')
+                : trimmedLine;
+
+              if (jsonStr === '[DONE]' || !jsonStr) continue;
+
+              try {
+                const json = JSON.parse(jsonStr);
+                const content = json.choices?.[0]?.delta?.content;
+                if (content) onData(content);
+              } catch (e) {
+                console.warn('单条数据解析失败，跳过：', line, e);
+              }
+            }
+
+            await readStream();
+          } catch (e) {
+            if (!signal.aborted) {
+              onError(new Error(`解析大模型流式数据失败：${(e as Error).message}`));
+            }
+          }
+        };
+
+        await readStream();
+      })
+      .catch((err) => {
+        if (!signal.aborted) {
+          onError(new Error(`语法解析流式请求失败：${err.message}`));
+        }
+      });
+
+    return abortController;
   }
 
   /**
