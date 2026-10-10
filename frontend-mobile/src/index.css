@@ -19,7 +19,10 @@ body {
      内联样式在该场景下改回 overflow-y: auto 并放置隐形撑高块来解锁。 */
   overflow: hidden;
   background: var(--global-bg-color);
-  color: #374151;
+  /* 必须跟随主题：标题、图标(currentColor)、未显式设色的正文都靠它继承，
+     写死深灰会在暮夜黑下导致「深底深字」不可读。
+     用 --global-text-color 而非 --ant-color-text：antd 的变量作用域只在 antd 组件节点上 */
+  color: var(--global-text-color, #374151);
   font-family:
     -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue',
     'Microsoft YaHei', sans-serif;
@@ -34,6 +37,9 @@ body {
 
 .no-select {
   -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none; /* iOS Safari 禁止长按弹出复制菜单 */
+  -webkit-user-select: none;   /* 禁止文字选中 */
   user-select: none;
 }
 

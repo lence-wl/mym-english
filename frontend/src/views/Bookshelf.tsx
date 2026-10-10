@@ -23,7 +23,6 @@ interface BookItem {
   id: number
   title: string
   author: string
-  description: string
 }
 
 // 分类标签组件
@@ -166,20 +165,10 @@ const BookCard: React.FC<{ book: BookItem }> = ({ book }) => {
 
           {/* 书籍信息 */}
           <div className="p-4 bg-white flex flex-col">
-            <div className="flex-1">
-              <Typography.Paragraph
-                ellipsis={{ rows: 3, tooltip: true }}
-                className="m-0 text-sm text-gray-700 leading-relaxed"
-              >
-                {book.description}
-              </Typography.Paragraph>
-            </div>
-
             <div
               onClick={() => {
                 goReader(book.id)
               }}
-              className="mt-3 pt-3 border-t border-gray-100"
             >
               <div className="flex justify-between items-center text-xs text-[#333] bolder">
                 <span>阅读</span>

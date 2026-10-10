@@ -193,8 +193,27 @@ export class UserService {
   async updateReadingStatus(id: number, statusDto: UpdateReadingStatusDto) {
     // 检查用户是否存在
     await this.findOne(id);
-    // 执行更新
+
+    const { currentBookId, currentBookLoc } = statusDto;
+
+    // 执行更新（currentBookId / currentBookLoc 始终代表「最近在读的那本」）
     await this.userModel.updateOne({ _id: id }, { $set: { ...statusDto } });
+
+    // 同时按书各存一份位置：允许随时在书架切换到别的书，
+    // 换回来时才能接着上次的位置读，而不是从第一页重新开始
+    if (currentBookId && currentBookLoc) {
+      const bookId = String(currentBookId);
+      const updated = await this.userModel.updateOne(
+        { _id: id, 'myBookData.id': bookId },
+        { $set: { 'myBookData.$.location': currentBookLoc } },
+      );
+      if (updated.matchedCount === 0) {
+        await this.userModel.updateOne(
+          { _id: id },
+          { $push: { myBookData: { id: bookId, location: currentBookLoc } } },
+        );
+      }
+    }
 
     // 返回更新后的用户信息
     return this.findOne(id);

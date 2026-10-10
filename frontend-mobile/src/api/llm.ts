@@ -79,10 +79,14 @@ export const getGrammarStream = (
 }
 
 /**
- * 文字转语音：返回音频 blob
+ * 音色档位：'en' 用英文音色（纯英文内容）；'zh' 用中英双语音色（可读中英混合文本）。
+ * 服务端据此选择音色。
  */
-export const getTTS = (
-  text: string,
-  speed: number = 0.9,
-  voice_type: string = 'BV503_stream',
-) => request.get('/tts', { text, speed, voice_type }, { responseType: 'blob' })
+export type SpeechLang = 'en' | 'zh'
+
+/**
+ * 文字转语音（火山引擎，非流式）。
+ * 返回体 data 结构：{ code, message, data: <base64 mp3>, addition: { duration, frontend } }
+ */
+export const getTTS = (text: string, lang: SpeechLang = 'en') =>
+  request.post('/tts/synth', { text, voiceType: lang })

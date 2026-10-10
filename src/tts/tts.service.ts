@@ -18,6 +18,10 @@ const CONFIG = {
   APP_KEY: 'aGjiRDfUWi',
   SAMPLE_RATE: 24000,
   AUDIO_FORMAT: 'mp3',
+  // 纯英语音色：只读英文，中文会被静默丢弃
+  SPEAKER: 'en_female_skye_uranus_bigtts',
+  // 中英混音色：能同时读英文单词和中文释义
+  SPEAKER_ZH: 'zh_female_vv_uranus_bigtts',
 };
 
 // 语速倍率（1.0 为音色原始语速）；v3 的 speech_rate 取值为 [-50, 100]，100 表示 2.0 倍速
@@ -46,7 +50,6 @@ export class TtsService {
   private readonly accessKey: string;
   private readonly resourceId: string;
   private readonly appKey: string;
-  private readonly speaker: string;
   private readonly cacheMaxBytes: number;
   private lastEvictAt = 0;
 
@@ -61,9 +64,6 @@ export class TtsService {
     this.resourceId =
       this.configService.get<string>('TTS_RESOURCE_ID') || 'seed-tts-2.0';
     this.appKey = this.configService.get<string>('TTS_APP_KEY') || CONFIG.APP_KEY;
-    this.speaker =
-      this.configService.get<string>('TTS_SPEAKER') ||
-      'zh_female_vv_uranus_bigtts';
 
     // 缓存容量上限（MB），超出后按最久未使用淘汰
     this.cacheMaxBytes =
@@ -141,7 +141,8 @@ export class TtsService {
       throw new Error('合成文本不能为空');
     }
 
-    const cacheKey = this.buildCacheKey(dto.text);
+    const speaker = this.resolveSpeaker(dto.voiceType);
+    const cacheKey = this.buildCacheKey(dto.text, speaker);
 
     // 命中缓存：直接返回，不再调用合成接口（省费用）
     const cached = await this.getCached(cacheKey);
@@ -149,7 +150,7 @@ export class TtsService {
       return this.buildResponse(cached.audio, cached.duration, cached.frontend);
     }
 
-    const { audioBase64, words } = await this.requestV3(dto.text);
+    const { audioBase64, words } = await this.requestV3(dto.text, speaker);
 
     // 末字结束时间即音频时长（毫秒）
     const duration = words.length ? String(words[words.length - 1].end_time) : '0';
@@ -164,9 +165,9 @@ export class TtsService {
    * 缓存键：归一化文本 + 音色 + 语速 + 音频格式
    * 不做小写化——大小写会影响读音（如 US / us）
    */
-  private buildCacheKey(text: string): string {
+  private buildCacheKey(text: string, speaker: string): string {
     const normalized = (text || '').trim().replace(/\s+/g, ' ');
-    return `${normalized}|${this.speaker}|rate${SPEECH_RATE}|${CONFIG.AUDIO_FORMAT}@${CONFIG.SAMPLE_RATE}`;
+    return `${normalized}|${speaker}|rate${SPEECH_RATE}|${CONFIG.AUDIO_FORMAT}@${CONFIG.SAMPLE_RATE}`;
   }
 
   /** 读取语音缓存 */
@@ -234,10 +235,19 @@ export class TtsService {
   }
 
   /**
+   * 解析本次请求使用的音色：voiceType 传 'zh' 用中英混音色，其余一律用纯英语音色。
+   * 历史客户端可能传 BV511_streaming 之类的旧值，统一回落到纯英语音色，保证兼容。
+   */
+  private resolveSpeaker(voiceType?: string): string {
+    return voiceType === 'zh' ? CONFIG.SPEAKER_ZH : CONFIG.SPEAKER;
+  }
+
+  /**
    * 调用 v3 接口（返回 NDJSON 分片流），拼接音频并提取字级时间戳
    */
   private async requestV3(
     text: string,
+    speaker: string,
   ): Promise<{ audioBase64: string; words: FrontendWord[] }> {
     let raw: string;
     try {
@@ -254,7 +264,7 @@ export class TtsService {
         data: {
           req_params: {
             text,
-            speaker: this.speaker,
+            speaker,
             audio_params: {
               format: CONFIG.AUDIO_FORMAT,
               sample_rate: CONFIG.SAMPLE_RATE,

@@ -37,9 +37,6 @@ export class Book {
   @Prop({ type: String, required: true, maxlength: 100 })
   author: string; // 作者
 
-  @Prop({ type: String })
-  description?: string; // 简介
-
   @Prop({ type: String, required: true })
   filePath: string; // 文件保存路径
 

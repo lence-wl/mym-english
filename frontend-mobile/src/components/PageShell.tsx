@@ -17,7 +17,7 @@ const PageShell = ({ title, onBack, extra, children }: PageShellProps) => (
       style={{
         paddingTop: 'var(--safe-top)',
         height: 'calc(48px + var(--safe-top))',
-        background: 'var(--ant-color-bg-elevated, #fff)',
+        background: 'var(--global-bg-elevated, #fff)',
       }}
     >
       {onBack ? (

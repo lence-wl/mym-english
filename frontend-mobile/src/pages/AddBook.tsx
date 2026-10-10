@@ -6,8 +6,6 @@ import { RiUploadCloud2Line } from '@remixicon/react'
 import { addBook } from '../api/book'
 import PageShell from '../components/PageShell'
 
-const TextArea = Input.TextArea
-
 /** 上传电子书（epub） */
 const AddBook = () => {
   const navigate = useNavigate()
@@ -24,7 +22,6 @@ const AddBook = () => {
     const formData = new FormData()
     formData.append('title', values.title)
     formData.append('author', values.author)
-    if (values.description) formData.append('description', values.description)
     formData.append('file', file)
 
     setUploading(true)
@@ -64,9 +61,6 @@ const AddBook = () => {
           ]}
         >
           <Input placeholder="请输入作者" />
-        </Form.Item>
-        <Form.Item name="description" label="简介" rules={[{ max: 100, message: '简介不超过 100 个字符' }]}>
-          <TextArea rows={3} placeholder="简介（可选）" />
         </Form.Item>
 
         <Form.Item label="电子书文件" required>

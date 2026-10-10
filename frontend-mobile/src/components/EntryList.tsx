@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button, Empty, Select, Spin, Tag } from 'antd'
-import { RiDeleteBinLine, RiVolumeUpLine } from '@remixicon/react'
+import { RiDeleteBinLine, RiLoader2Line, RiVolumeUpLine } from '@remixicon/react'
 import { deleteWordByText, getWordListByPagi } from '../api/word'
+import { speak, stopSpeaking } from '../utils/speech'
 import useStore from '../store'
 
 interface EntryListProps {
   /** 0 = 单词，1 = 句子 */
   isSentence: 0 | 1
+  /** 选中的词书变化时通知上层（上层跳转循环播放页时需带上同一本书） */
+  onBookChange?: (bookId?: number) => void
 }
 
 const PAGE_SIZE = 10
@@ -20,13 +23,15 @@ interface Entry {
 }
 
 /** 生词/句子列表（移动端）：按书籍筛选 + 滚动加载更多 */
-const EntryList = ({ isSentence }: EntryListProps) => {
+const EntryList = ({ isSentence, onBookChange }: EntryListProps) => {
   const { userInfo } = useStore()
   const [bookId, setBookId] = useState<number | undefined>(undefined)
   const [items, setItems] = useState<Entry[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
+  /** 正在请求音频的条目，取到音频前显示 loading 并禁止重复点击 */
+  const [speakLoading, setSpeakLoading] = useState<string | null>(null)
 
   const books = userInfo.books || []
 
@@ -58,22 +63,25 @@ const EntryList = ({ isSentence }: EntryListProps) => {
     if (!userInfo.id) return
     const first = books[0]?.id
     setBookId(first)
+    onBookChange?.(first)
     setPage(1)
     fetchPage(1, first)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userInfo.id, books.length, isSentence])
 
-  const speak = (text: string) => {
+  // 朗读：取到音频前显示 loading，期间禁止重复点击（参考桌面端 ActionIcons）
+  const handleSpeak = async (word: string) => {
+    if (speakLoading) return
+    setSpeakLoading(word)
     try {
-      window.speechSynthesis.cancel()
-      const u = new SpeechSynthesisUtterance(text)
-      u.lang = 'en-US'
-      u.rate = text.split(/\s+/).length >= 3 ? 1 : 0.8
-      window.speechSynthesis.speak(u)
-    } catch {
-      /* 忽略 */
+      await speak(word)
+    } finally {
+      setSpeakLoading(null)
     }
   }
+
+  // 卸载（切页）时停止朗读，避免声音残留
+  useEffect(() => () => stopSpeaking(), [])
 
   const remove = async (word: string) => {
     await deleteWordByText(word)
@@ -103,6 +111,7 @@ const EntryList = ({ isSentence }: EntryListProps) => {
           allowClear
           onChange={(v) => {
             setBookId(v)
+            onBookChange?.(v)
             setPage(1)
             fetchPage(1, v)
           }}
@@ -120,24 +129,64 @@ const EntryList = ({ isSentence }: EntryListProps) => {
           <div
             key={item.word}
             className="rounded-xl p-4"
-            style={{ background: 'var(--ant-color-bg-elevated, #fff)' }}
+            style={{ background: 'var(--global-bg-elevated, #fff)' }}
           >
-            <div className="flex items-start gap-2">
-              <div className="flex-1 min-w-0">
-                <div className="text-[17px] font-bold break-words" style={{ color: '#6d8b74' }}>
+            {isSentence ? (
+              <>
+                <div
+                  className="text-[17px] font-bold break-words"
+                  style={{ color: 'var(--global-primary)' }}
+                >
                   {item.word}
                 </div>
-                {item.phonetic ? (
-                  <div className="text-[13px] italic opacity-60 mt-0.5">{item.phonetic}</div>
-                ) : null}
+                <div className="mt-2 flex items-center justify-end gap-3">
+                  <button
+                    className="p-1 no-select"
+                    onClick={() => handleSpeak(item.word)}
+                    disabled={speakLoading === item.word}
+                    aria-label="朗读"
+                  >
+                    {speakLoading === item.word ? (
+                      <RiLoader2Line size={20} />
+                    ) : (
+                      <RiVolumeUpLine size={20} />
+                    )}
+                  </button>
+                  <button className="p-1 no-select" onClick={() => remove(item.word)} aria-label="删除">
+                    <RiDeleteBinLine size={20} />
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <div
+                    className="text-[17px] font-bold break-words"
+                    style={{ color: 'var(--global-primary)' }}
+                  >
+                    {item.word}
+                  </div>
+                  {item.phonetic ? (
+                    <div className="text-[13px] italic opacity-60 mt-0.5">{item.phonetic}</div>
+                  ) : null}
+                </div>
+                <button
+                  className="p-1 no-select"
+                  onClick={() => handleSpeak(item.word)}
+                  disabled={speakLoading === item.word}
+                  aria-label="朗读"
+                >
+                  {speakLoading === item.word ? (
+                    <RiLoader2Line size={20} />
+                  ) : (
+                    <RiVolumeUpLine size={20} />
+                  )}
+                </button>
+                <button className="p-1 no-select" onClick={() => remove(item.word)} aria-label="删除">
+                  <RiDeleteBinLine size={20} />
+                </button>
               </div>
-              <button className="p-1 no-select" onClick={() => speak(item.word)} aria-label="朗读">
-                <RiVolumeUpLine size={20} />
-              </button>
-              <button className="p-1 no-select" onClick={() => remove(item.word)} aria-label="删除">
-                <RiDeleteBinLine size={20} />
-              </button>
-            </div>
+            )}
 
             {item.definition ? (
               <div className="mt-2 text-[15px] leading-relaxed whitespace-pre-wrap">

@@ -17,7 +17,6 @@ import { SequenceService } from '../common/sequence.service';
 const LIST_PROJECTION = {
   title: 1,
   author: 1,
-  description: 1,
   downloadCount: 1,
   status: 1,
   createdAt: 1,

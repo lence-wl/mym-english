@@ -14,13 +14,11 @@ import type { UploadFile, UploadProps } from 'antd'
 import { UploadOutlined, BookOutlined } from '@ant-design/icons'
 import PageWrapper from '../components/PageWrapper'
 import { addBook } from '../api/book'
-const TextArea = Input.TextArea
 
 // 电子书上传表单数据类型定义
 interface BookFormValues {
   title: string
   author: string
-  description?: string
   file: UploadFile[]
 }
 
@@ -59,7 +57,7 @@ const BookUploadPage: React.FC = () => {
   const handleSubmit = async () => {
     // 表单验证
     const values = await form.validateFields()
-    const { title, author, description, file } = values as BookFormValues as any
+    const { title, author, file } = values as BookFormValues as any
     // 检查是否选择了文件
     if (!file) {
       notification.open({
@@ -73,7 +71,6 @@ const BookUploadPage: React.FC = () => {
     const formData = new FormData()
     formData.append('title', title)
     formData.append('author', author)
-    if (description) formData.append('description', description)
     formData.append('file', file[0].originFileObj)
     // 设置上传状态
     setUploading(true)
@@ -147,14 +144,6 @@ const BookUploadPage: React.FC = () => {
               ]}
             >
               <Input placeholder="请输入作者名称" />
-            </Form.Item>
-
-            <Form.Item
-              name="description"
-              label="简介"
-              rules={[{ max: 100, message: '简介长度不能超过100个字符' }]}
-            >
-              <TextArea rows={4} placeholder="请输入电子书简介（可选）" />
             </Form.Item>
 
             <Form.Item

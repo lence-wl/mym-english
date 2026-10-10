@@ -7,9 +7,11 @@
   "license": "UNLICENSED",
   "scripts": {
     "dev": "concurrently -n server,web -c blue,green \"nest start --watch\" \"npm --prefix frontend run dev\"",
+    "dev:all": "concurrently -n server,web,mobile -c blue,green,magenta \"nest start --watch\" \"npm --prefix frontend run dev\" \"npm --prefix frontend-mobile run dev\"",
     "dev:server": "nest start --watch",
     "dev:frontend": "npm --prefix frontend run dev",
     "dev:mobile": "npm --prefix frontend-mobile run dev",
+    "dev:mobile:all": "concurrently -n server,mobile -c blue,magenta \"nest start --watch\" \"npm --prefix frontend-mobile run dev\"",
     "build": "nest build && npm --prefix frontend run build && npm --prefix frontend-mobile run build",
     "build:server": "nest build",
     "build:frontend": "npm --prefix frontend run build",

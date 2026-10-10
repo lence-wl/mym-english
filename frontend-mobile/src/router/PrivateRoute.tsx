@@ -50,8 +50,9 @@ const PrivateRoute = () => {
 
   if (!hasToken) return <Navigate to="/login" replace />
 
-  // 阅读页为沉浸全屏，不展示底部导航
-  const hideTabBar = location.pathname === '/reader'
+  // 阅读页与循环播放页为沉浸全屏，不展示底部导航
+  const hideTabBar =
+    location.pathname === '/reader' || location.pathname === '/vocabulary/play'
 
   if (loading && !state.userInfo.username) {
     return (

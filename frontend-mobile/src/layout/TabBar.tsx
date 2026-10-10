@@ -29,8 +29,8 @@ const TabBar = () => (
     style={{
       height: 'calc(var(--tabbar-height) + var(--safe-bottom))',
       paddingBottom: 'var(--safe-bottom)',
-      background: 'var(--ant-color-bg-elevated, #fff)',
-      borderColor: 'var(--ant-color-border-secondary, #f0f0f0)',
+      background: 'var(--global-bg-elevated, #fff)',
+      borderColor: 'var(--global-border-secondary, #f0f0f0)',
     }}
   >
     {tabs.map(({ path, name, Icon }) => (
@@ -41,10 +41,17 @@ const TabBar = () => (
       >
         {({ isActive }) => (
           <>
-            <Icon size={22} color={isActive ? 'var(--ant-color-primary)' : '#9aa0a6'} />
+            <Icon
+              size={22}
+              color={isActive ? 'var(--global-primary)' : 'var(--global-text-secondary, #6b7280)'}
+            />
             <span
               className="text-[11px] leading-[1.2]"
-              style={{ color: isActive ? 'var(--ant-color-primary)' : '#9aa0a6' }}
+              style={{
+                color: isActive
+                  ? 'var(--global-primary)'
+                  : 'var(--global-text-secondary, #6b7280)',
+              }}
             >
               {name}
             </span>

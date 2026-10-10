@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Empty, notification, Spin } from 'antd'
+import { Empty, Spin } from 'antd'
 import { RiAddLine } from '@remixicon/react'
 import PageShell from '../components/PageShell'
 import { getBookList } from '../api/book'
@@ -11,16 +11,17 @@ interface BookItem {
   id: number
   title: string
   author: string
-  description: string
 }
 
+// 封面底色统一压到中深调：白字在这些底色上对比度 >= 4.5:1。
+// 之前的浅色马卡龙渐变配白字只有 1.4:1 左右，标题靠 drop-shadow 勉强能看、作者行直接糊掉
 const COVER_COLORS = [
-  'linear-gradient(135deg, #e6e9f0 0%, #c8ceed 100%)',
-  'linear-gradient(135deg, #fce4ec 0%, #f8ccd4 100%)',
-  'linear-gradient(135deg, #e0f7fa 0%, #b2ebf2 100%)',
-  'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)',
-  'linear-gradient(135deg, #fff8e1 0%, #ffe0b2 100%)',
-  'linear-gradient(135deg, #f3e5f5 0%, #e1bee7 100%)',
+  'linear-gradient(135deg, #5b6b8c 0%, #414e6d 100%)', // 黛蓝
+  'linear-gradient(135deg, #a85f70 0%, #83485a 100%)', // 绛红
+  'linear-gradient(135deg, #3a7480 0%, #2b5761 100%)', // 青碧
+  'linear-gradient(135deg, #4f7a5c 0%, #3a5d48 100%)', // 苔绿
+  'linear-gradient(135deg, #8f6a35 0%, #6d4f26 100%)', // 沉稳棕
+  'linear-gradient(135deg, #6f5f9c 0%, #54467a 100%)', // 紫檀
 ]
 
 /** 书架：双列卡片，点击进入阅读 */
@@ -37,18 +38,15 @@ const Bookshelf = () => {
   }, [])
 
   const openBook = (book: BookItem) => {
-    const currentBookId = state.userInfo.currentBookId
-    if (currentBookId && currentBookId !== book.id) {
-      notification.warning({
-        message: '你已有正在阅读的书籍',
-        description: '先读完当前这本，或从书架继续阅读',
-      })
-      return
-    }
-    // 同一本书是「继续阅读」，必须保留 currentBookLoc，否则阅读器会从第一页重新开始
-    if (currentBookId !== book.id) {
-      state.updateUserInfo({ currentBookId: book.id, currentBookLoc: null })
-      updateReadingStatus(book.id, null).catch(() => {})
+    // 允许随时切换到任意一本：每本书各自记录阅读位置（后端 myBookData），
+    // 换回来时接着上次的位置继续读，不会因为换书而丢掉进度
+    if (state.userInfo.currentBookId !== book.id) {
+      const saved = (state.userInfo.myBookData || []).find(
+        (item) => String(item.id) === String(book.id),
+      )
+      const loc = saved?.location || null
+      state.updateUserInfo({ currentBookId: book.id, currentBookLoc: loc })
+      updateReadingStatus(book.id, loc).catch(() => {})
     }
     navigate('/reader')
   }
@@ -75,7 +73,7 @@ const Bookshelf = () => {
               <button
                 key={book.id}
                 className="text-left rounded-xl overflow-hidden no-select"
-                style={{ background: 'var(--ant-color-bg-elevated, #fff)' }}
+                style={{ background: 'var(--global-bg-elevated, #fff)' }}
                 onClick={() => openBook(book)}
               >
                 <div
@@ -85,20 +83,8 @@ const Bookshelf = () => {
                   <div className="text-white font-bold text-center leading-snug line-clamp-3 drop-shadow">
                     {book.title}
                   </div>
-                  <div className="text-white/90 text-xs mt-1">{book.author}</div>
-                </div>
-                <div className="p-3">
-                  <div
-                    className="text-[13px] leading-snug opacity-70"
-                    style={{
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    {book.description}
-                  </div>
+                  {/* 作者行保持纯白：/90 的半透明会把对比度拉到 4.1，低于 4.5 的可读线 */}
+                  <div className="text-white text-xs mt-1">{book.author}</div>
                 </div>
               </button>
             ))}

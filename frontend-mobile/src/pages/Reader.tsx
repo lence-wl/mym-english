@@ -61,7 +61,17 @@ const Reader = () => {
 
   const handleRelocated = useCallback(
     (cfi: string) => {
-      useStore.getState().updateUserInfo({ currentBookLoc: cfi })
+      const { userInfo: info, updateUserInfo } = useStore.getState()
+      const bookId = info.currentBookId
+      updateUserInfo({
+        currentBookLoc: cfi,
+        // 同步本会话内的「按书位置」：在书架切走再切回时，
+        // 直接取这里的位置继续读，不必等下一次 /auth/me
+        myBookData: [
+          ...(info.myBookData || []).filter((b) => String(b.id) !== String(bookId)),
+          ...(bookId ? [{ id: String(bookId), location: cfi }] : []),
+        ],
+      })
       reportProgress(cfi)
       const book = bookRef.current
       if (book && locationsReadyRef.current) {
@@ -179,7 +189,7 @@ const Reader = () => {
               className="h-full rounded-full transition-[width] duration-300"
               style={{
                 width: `${percent}%`,
-                background: 'var(--ant-color-primary)',
+                background: 'var(--global-primary)',
               }}
             />
           </div>

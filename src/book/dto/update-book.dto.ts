@@ -12,11 +12,6 @@ export class UpdateBookDto {
   author?: string;
 
   @IsOptional()
-  @IsString({ message: '描述必须是字符串' })
-  @MaxLength(500, { message: '描述长度不能超过500个字符' })
-  description?: string;
-
-  @IsOptional()
   @IsNumber({}, { message: '状态必须是数字' })
   status?: 0 | 1;
 }

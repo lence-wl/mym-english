@@ -18,9 +18,12 @@ const compConfig: any = {
   Button: { borderRadius: 10, controlHeight: 46, fontSize: 16 },
   Form: { labelHeight: 40 },
   Select: {
-    dropdownBg: 'var(--ant-color-bg-elevated)',
-    itemSelectedBg: 'var(--ant-color-primary-light-9)',
-    itemSelectedColor: 'var(--ant-color-primary)',
+    // 原本这三行写的是 ant-design-vue 的 token 名（dropdownBg/itemSelectedBg/itemSelectedColor），
+    // antd v5 里不存在、一直被静默忽略，正确名是 optionSelected*；下拉底色 antd 本来就用
+    // colorBgElevated，不需要单独指定。
+    // 下拉是 portal 挂在 body 下，读不到 antd 组件自身的 cssVar 作用域，所以取 :root 上的 --global-*
+    optionSelectedBg: 'var(--global-primary-bg)',
+    optionSelectedColor: 'var(--global-primary)',
   },
 }
 
@@ -53,6 +56,9 @@ export const themes: Record<string, ThemeConfig> = {
       colorText: '#e0e0e0',
       colorTextSecondary: '#b0b0b0',
       colorBorder: '#444444',
+      // 其他主题都指定了主色，只有暮夜黑漏了，会落到 antd 默认蓝 #1668dc。
+      // 深底上要比品牌绿更亮才够对比度，取同色系浅一档
+      colorPrimary: '#8ab894',
     },
     components: compConfig,
   },

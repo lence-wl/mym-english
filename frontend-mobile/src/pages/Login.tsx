@@ -3,7 +3,6 @@ import { Button, Form, Input, notification, Segmented } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { RiLockLine, RiMailLine, RiRefreshLine, RiUserLine } from '@remixicon/react'
 import { captchaVerify, getCaptcha, userLogin, userRegister } from '../api/user'
-import ThemeSwitcher from '../components/ThemeSwitcher'
 
 /** 移动端登录/注册页 */
 const Login = () => {
@@ -75,17 +74,16 @@ const Login = () => {
   }
 
   return (
-    <div className="h-full w-full flex flex-col px-6" style={{ paddingTop: 'var(--safe-top)' }}>
+    <div
+      className="h-full w-full flex flex-col px-6 overflow-y-auto scroll-y"
+      style={{ paddingTop: 'var(--safe-top)' }}
+    >
       <div className="pt-10 pb-6 flex flex-col items-start gap-2">
         <img src="/m/icon.png" alt="蔓阅莓" className="w-14 h-14 rounded-xl" />
         <div className="text-2xl font-bold">{isLogin ? '欢迎回来' : '创建账号'}</div>
         <div className="text-sm opacity-60">
           {isLogin ? '登录后继续你的英语阅读' : '填写以下信息注册新账号'}
         </div>
-      </div>
-
-      <div className="self-end mb-4">
-        <ThemeSwitcher />
       </div>
 
       <Form form={form} layout="vertical" onFinish={onFinish} requiredMark={false}>

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Spin, Tabs } from 'antd'
-import { RiCloseLine, RiStarFill, RiStarLine, RiVolumeUpLine } from '@remixicon/react'
+import { RiCloseLine, RiLoader2Line, RiStarFill, RiStarLine, RiVolumeUpLine } from '@remixicon/react'
 import { getWordDataFormLLM, getGrammarStream } from '../api/llm'
 import { addWord, deleteWordByText, getWordByText } from '../api/word'
-import { readingColorConfig } from '../theme/themeConfig'
+import { speak, stopSpeaking } from '../utils/speech'
 import useStore from '../store'
 
 interface DefinitionSheetProps {
@@ -29,7 +29,6 @@ interface DefinitionData {
  * 多词选段额外提供「语法解析」Tab：老师口吻的纯文本讲解，流式边收边显示。
  */
 const DefinitionSheet = ({ text, open, onClose }: DefinitionSheetProps) => {
-  const themeConfig = useStore((s) => s.themeConfig)
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<DefinitionData>({})
   const [favorite, setFavorite] = useState(false)
@@ -37,17 +36,21 @@ const DefinitionSheet = ({ text, open, onClose }: DefinitionSheetProps) => {
   const [grammarLoading, setGrammarLoading] = useState(false)
   const [grammarText, setGrammarText] = useState('')
   const [grammarError, setGrammarError] = useState(false)
+  const [speakLoading, setSpeakLoading] = useState(false)
   /** 本次语法解析是否已经结束（结束后切 Tab 回来不再重复请求） */
   const grammarDoneRef = useRef(false)
   const reqIdRef = useRef(0)
 
   const isSentence = !!data.t
-  const colorText = readingColorConfig[themeConfig.theme]?.colorText || '#374151'
+  // 抽屉底色用的是 antd 的 colorBgElevated，文字色必须同源：
+  // 之前取 readingColorConfig（阅读页配色）只是「恰好」对得上，两套配色各自演进容易漏
+  const colorText = 'var(--global-text-color)'
   // 单个单词没有句子结构可分析，隐藏「语法解析」
   const canGrammar = /\s/.test(text.trim())
 
   useEffect(() => {
-    // 换词/关闭时重置语法结果与当前 Tab
+    // 换词/关闭时停止朗读，并重置语法结果与当前 Tab
+    stopSpeaking()
     setTab('def')
     setGrammarText('')
     setGrammarLoading(false)
@@ -89,6 +92,9 @@ const DefinitionSheet = ({ text, open, onClose }: DefinitionSheetProps) => {
     load()
   }, [text, open])
 
+  // 卸载（离开阅读页）时停止朗读，避免声音残留
+  useEffect(() => () => stopSpeaking(), [])
+
   // 语法解析懒加载（流式）：切到「语法解析」Tab 才发起，边收边渲染
   useEffect(() => {
     if (!open || tab !== 'grammar' || !canGrammar) return
@@ -127,15 +133,14 @@ const DefinitionSheet = ({ text, open, onClose }: DefinitionSheetProps) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, open, text, canGrammar])
 
-  const speak = () => {
+  // 朗读：取到音频前显示 loading，期间禁止重复点击（参考桌面端 ActionIcons）
+  const handleSpeak = async () => {
+    if (speakLoading) return
+    setSpeakLoading(true)
     try {
-      window.speechSynthesis.cancel()
-      const u = new SpeechSynthesisUtterance(text)
-      u.lang = 'en-US'
-      u.rate = 0.8
-      window.speechSynthesis.speak(u)
-    } catch {
-      /* 浏览器不支持时忽略 */
+      await speak(text)
+    } finally {
+      setSpeakLoading(false)
     }
   }
 
@@ -227,36 +232,48 @@ const DefinitionSheet = ({ text, open, onClose }: DefinitionSheetProps) => {
       <div
         className="absolute left-0 right-0 bottom-0 rounded-t-2xl shadow-2xl flex flex-col"
         style={{
-          // 固定为屏幕高度的一半，内容超出就在内容区滚动
-          height: '50vh',
-          background: 'var(--ant-color-bg-elevated, #fff)',
+          // 固定为屏幕高度的 70%，内容超出就在内容区滚动
+          height: '70vh',
+          // 玻璃模糊态：半透明主题底色 + 背景模糊（参考桌面端 ShowTranslation）
+          background: 'color-mix(in srgb, var(--global-bg-elevated, #fff) 70%, transparent)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
           paddingBottom: 'var(--safe-bottom)',
         }}
       >
-        {/* 顶部：原文 + 操作 */}
-        <div className="shrink-0 flex items-start gap-3 px-4 pt-4 pb-2">
-          <div className="flex-1 min-w-0">
-            <div className="text-[17px] font-bold break-words" style={{ color: colorText }}>
-              {text}
-            </div>
+        {/* 顶部：原文独占一行，操作按钮另起一行 */}
+        <div className="shrink-0 px-4 pt-4 pb-2">
+          <div className="text-[17px] font-bold break-words" style={{ color: colorText }}>
+            {text}
           </div>
-          <button className="shrink-0 p-1 no-select" onClick={speak} aria-label="朗读">
-            <RiVolumeUpLine size={22} color={colorText} />
-          </button>
-          <button
-            className="shrink-0 p-1 no-select"
-            onClick={toggleFavorite}
-            aria-label={favorite ? '取消收藏' : '收藏'}
-          >
-            {favorite ? (
-              <RiStarFill size={22} color="#eab308" />
-            ) : (
-              <RiStarLine size={22} color={colorText} />
-            )}
-          </button>
-          <button className="shrink-0 p-1 no-select" onClick={onClose} aria-label="关闭">
-            <RiCloseLine size={22} color={colorText} />
-          </button>
+          <div className="mt-2 flex items-center justify-end gap-3">
+            <button
+              className="shrink-0 p-1 no-select"
+              onClick={handleSpeak}
+              disabled={speakLoading}
+              aria-label="朗读"
+            >
+              {speakLoading ? (
+                <RiLoader2Line size={22} color={colorText} />
+              ) : (
+                <RiVolumeUpLine size={22} color={colorText} />
+              )}
+            </button>
+            <button
+              className="shrink-0 p-1 no-select"
+              onClick={toggleFavorite}
+              aria-label={favorite ? '取消收藏' : '收藏'}
+            >
+              {favorite ? (
+                <RiStarFill size={22} color="#eab308" />
+              ) : (
+                <RiStarLine size={22} color={colorText} />
+              )}
+            </button>
+            <button className="shrink-0 p-1 no-select" onClick={onClose} aria-label="关闭">
+              <RiCloseLine size={22} color={colorText} />
+            </button>
+          </div>
         </div>
 
         {/* 内容区：释义 / 语法解析，超出高度时在这里滚动 */}

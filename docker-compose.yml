@@ -52,7 +52,7 @@ services:
       TTS_TOKEN: ${TTS_TOKEN}
       TTS_RESOURCE_ID: ${TTS_RESOURCE_ID:-seed-tts-2.0}
       TTS_APP_KEY: ${TTS_APP_KEY:-aGjiRDfUWi}
-      TTS_SPEAKER: ${TTS_SPEAKER:-zh_female_vv_uranus_bigtts}
+      # 音色已内置在代码中（src/tts/tts.service.ts 的 CONFIG.SPEAKER / CONFIG.SPEAKER_ZH）
       # 语音缓存容量上限（MB），超出后按最久未使用淘汰
       TTS_CACHE_MAX_MB: ${TTS_CACHE_MAX_MB:-500}
       CAPTCHA_SECRET_KEY: ${CAPTCHA_SECRET_KEY:-please-change-me-32-bytes-secret}

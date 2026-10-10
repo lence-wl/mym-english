@@ -17,10 +17,10 @@ const Me = () => {
 
   return (
     <PageShell title="我的">
-      <div className="rounded-xl p-4 flex items-center gap-3" style={{ background: 'var(--ant-color-bg-elevated, #fff)' }}>
+      <div className="rounded-xl p-4 flex items-center gap-3" style={{ background: 'var(--global-bg-elevated, #fff)' }}>
         <div
           className="w-12 h-12 rounded-full flex items-center justify-center text-white text-lg font-bold"
-          style={{ background: 'var(--ant-color-primary)' }}
+          style={{ background: 'var(--global-primary)' }}
         >
           {(userInfo.username || '?').slice(0, 1).toUpperCase()}
         </div>
@@ -31,14 +31,14 @@ const Me = () => {
       </div>
 
       <div className="grid grid-cols-2 gap-3 mt-3">
-        <div className="rounded-xl p-4 text-center" style={{ background: 'var(--ant-color-bg-elevated, #fff)' }}>
-          <div className="text-2xl font-bold" style={{ color: '#6d8b74' }}>
+        <div className="rounded-xl p-4 text-center" style={{ background: 'var(--global-bg-elevated, #fff)' }}>
+          <div className="text-2xl font-bold" style={{ color: 'var(--global-primary)' }}>
             {userInfo.wordCount || 0}
           </div>
           <div className="text-xs opacity-60 mt-1">生词</div>
         </div>
-        <div className="rounded-xl p-4 text-center" style={{ background: 'var(--ant-color-bg-elevated, #fff)' }}>
-          <div className="text-2xl font-bold" style={{ color: '#6d8b74' }}>
+        <div className="rounded-xl p-4 text-center" style={{ background: 'var(--global-bg-elevated, #fff)' }}>
+          <div className="text-2xl font-bold" style={{ color: 'var(--global-primary)' }}>
             {userInfo.sentenceCount || 0}
           </div>
           <div className="text-xs opacity-60 mt-1">句子</div>
@@ -47,7 +47,7 @@ const Me = () => {
 
       <div
         className="rounded-xl p-4 mt-3 flex items-center justify-between"
-        style={{ background: 'var(--ant-color-bg-elevated, #fff)' }}
+        style={{ background: 'var(--global-bg-elevated, #fff)' }}
       >
         <div className="text-sm">主题颜色</div>
         <ThemeSwitcher />
