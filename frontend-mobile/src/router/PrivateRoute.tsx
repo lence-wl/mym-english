@@ -2,7 +2,7 @@ import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import useStore from '../store'
 import { me } from '../api/user'
-import { getBooksDetailByIds } from '../api/book'
+import { fetchBooksByIds, userBookIds } from '../utils/userBooks'
 import TabBar from '../layout/TabBar'
 import { Spin } from 'antd'
 
@@ -19,17 +19,10 @@ const PrivateRoute = () => {
       setLoading(true)
       const { data } = await me()
       state.setUserInfo(data)
-      const ids = [data.currentBookId, ...(data.completeBookIds || '').split(',')].filter(
-        (id: any) => id,
-      )
+      // 在读书籍来自 myBookData（可多本同时在读）+ 已读完
+      const ids = userBookIds(data)
       if (ids.length) {
-        const res = await getBooksDetailByIds(ids)
-        state.updateUserInfo({
-          books: res.data.map((item: any) => ({
-            id: item.id,
-            title: item.title,
-          })),
-        })
+        state.updateUserInfo({ books: await fetchBooksByIds(ids) })
       }
     } catch {
       localStorage.removeItem('token')

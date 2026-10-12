@@ -48,18 +48,22 @@ export class BookService {
 
   /**
    * 批量统计各本书的「在读人数」
-   * 口径：把该书设为当前在读的用户数（users.currentBookId === 书籍ID）
+   * 口径：把该书登记在 myBookData 里的用户数
+   * 支持一个用户多本同时在读，因此按 myBookData 明细统计而非单个 currentBookId
    */
   private async countReaders(ids: number[]): Promise<Map<number, number>> {
     if (!ids.length) return new Map();
+    const stringIds = ids.map(String);
     const rows = await this.userModel.aggregate<{
-      _id: number;
+      _id: string;
       count: number;
     }>([
-      { $match: { currentBookId: { $in: ids }, deletedAt: null } },
-      { $group: { _id: '$currentBookId', count: { $sum: 1 } } },
+      { $match: { deletedAt: null, 'myBookData.id': { $in: stringIds } } },
+      { $unwind: '$myBookData' },
+      { $match: { 'myBookData.id': { $in: stringIds } } },
+      { $group: { _id: '$myBookData.id', count: { $sum: 1 } } },
     ]);
-    return new Map(rows.map((row) => [row._id, row.count]));
+    return new Map(rows.map((row) => [Number(row._id), row.count]));
   }
 
   /** 判断用户是否为管理员（JWT 中不含 role，需查库） */

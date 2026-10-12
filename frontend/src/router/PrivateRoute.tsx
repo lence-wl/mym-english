@@ -1,7 +1,7 @@
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import Navigator from '../components/Navigator'
 import { me } from '../api/user'
-import { getBooksDetailByIds } from '../api/book'
+import { fetchBooksByIds, userBookIds } from '../utils/userBooks'
 import { useEffect, useState } from 'react'
 import useStore from '../store'
 
@@ -17,19 +17,11 @@ const PrivateRoute = () => {
       const { data } = await me()
       state.setUserInfo(data)
       setLoading(false)
-      // 获取当前用户相关的书籍：在读 已读完
-      const ids = [
-        data.currentBookId,
-        ...data.completeBookIds.split(','),
-      ].filter((id) => id)
+      // 获取当前用户相关的书籍：在读（myBookData，可多本同时在读） + 已读完
+      const ids = userBookIds(data)
       if (ids.length) {
-        getBooksDetailByIds(ids).then((res) => {
-          state.updateUserInfo({
-            books: res.data.map((item: any) => {
-              return { id: item.id, title: item.title }
-            }),
-          })
-        })
+        const books = await fetchBooksByIds(ids)
+        state.updateUserInfo({ books })
       } else {
         navigate('/bookshelf', { replace: true })
       }

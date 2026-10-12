@@ -164,8 +164,16 @@ export default () => {
 
   // 使用防抖的位置更新函数
   const locationChanged = async (loc: any) => {
-    state.updateUserInfo({
+    const { userInfo, updateUserInfo } = useStore.getState()
+    const bookId = userInfo.currentBookId
+    updateUserInfo({
       currentBookLoc: loc,
+      // 同步本会话内的「按书位置」：在书架切走再切回时，
+      // 直接取这里的位置继续读，不必等下一次 /auth/me
+      myBookData: [
+        ...(userInfo.myBookData || []).filter((b) => String(b.id) !== String(bookId)),
+        ...(bookId ? [{ id: String(bookId), location: String(loc) }] : []),
+      ],
     })
     debouncedUpdateReadingStatus(loc)
   }

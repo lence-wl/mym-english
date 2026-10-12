@@ -199,18 +199,27 @@ export class UserService {
     // 执行更新（currentBookId / currentBookLoc 始终代表「最近在读的那本」）
     await this.userModel.updateOne({ _id: id }, { $set: { ...statusDto } });
 
-    // 同时按书各存一份位置：允许随时在书架切换到别的书，
-    // 换回来时才能接着上次的位置读，而不是从第一页重新开始
-    if (currentBookId && currentBookLoc) {
+    // 同时按书各存一份位置：myBookData 即「在读书单」，
+    // 允许一个用户多本同时在读，也方便随时切换到别的书再换回来接着读
+    if (currentBookId) {
       const bookId = String(currentBookId);
-      const updated = await this.userModel.updateOne(
-        { _id: id, 'myBookData.id': bookId },
-        { $set: { 'myBookData.$.location': currentBookLoc } },
-      );
-      if (updated.matchedCount === 0) {
+      if (currentBookLoc) {
+        // 带了位置：更新该书位置；书还没登记过就顺带登记
+        const updated = await this.userModel.updateOne(
+          { _id: id, 'myBookData.id': bookId },
+          { $set: { 'myBookData.$.location': currentBookLoc } },
+        );
+        if (updated.matchedCount === 0) {
+          await this.userModel.updateOne(
+            { _id: id },
+            { $push: { myBookData: { id: bookId, location: currentBookLoc } } },
+          );
+        }
+      } else {
+        // 没带位置（刚打开还没翻页）：只登记「在读」，不覆盖已保存的位置
         await this.userModel.updateOne(
-          { _id: id },
-          { $push: { myBookData: { id: bookId, location: currentBookLoc } } },
+          { _id: id, 'myBookData.id': { $ne: bookId } },
+          { $push: { myBookData: { id: bookId, location: '' } } },
         );
       }
     }

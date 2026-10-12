@@ -7,7 +7,6 @@ import {
   Col,
   Spin,
   Card as AntCard,
-  notification,
   Button,
   Popconfirm,
   Segmented,
@@ -54,25 +53,23 @@ const BookCard: React.FC<{
     return colors[id % colors.length]
   }
 
-  // 点击跳转到阅读页面
+  // 点击跳转到阅读页面（支持多本同时在读，随时可打开任意书）
   const goReader = async (id: number) => {
-    if (
-      state.userInfo.currentBookId === id ||
-      state.userInfo.currentBookId === null
-    ) {
-      state.updateUserInfo({
-        currentBookId: id,
-      })
+    const { userInfo } = state
+    const saved = (userInfo.myBookData || []).find(
+      (item) => String(item.id) === String(id),
+    )
+    state.updateUserInfo({
+      currentBookId: id,
+      // 当前这本沿用实时位置；切到别的书则用该书各自保存的位置，没有则从头开始
+      currentBookLoc:
+        userInfo.currentBookId === id
+          ? userInfo.currentBookLoc
+          : saved?.location || null,
+    })
 
-      await updateReadingStatus()
-      navigate('/', { replace: true })
-    } else {
-      notification.open({
-        message: '提示',
-        type: 'error',
-        description: '你已经有正在阅读的书籍了，不能贪多',
-      })
-    }
+    await updateReadingStatus()
+    navigate('/', { replace: true })
   }
 
   const isAdmin = state.userInfo.role === 'admin'

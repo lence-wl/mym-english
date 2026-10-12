@@ -5,6 +5,8 @@ import { type ThemeKey } from '../theme/themeConfig'
 declare interface UserInfo {
   currentBookId: null | number // 当前阅读书籍的id
   currentBookLoc: null | string // 当前阅读的位置
+  /** 各本书各自的阅读位置：[{ id: '书籍ID', location: '阅读位置' }]，即「在读书单」（可多本） */
+  myBookData: { id: string; location: string }[]
   username: null | string //用户名
   currentBookUrl: null | string //当前阅读书籍的地址
   id: number | string
@@ -34,6 +36,7 @@ const useStore = create<State>()((set, get) => ({
   userInfo: {
     currentBookId: null,
     currentBookLoc: null,
+    myBookData: [],
     currentBookUrl: null,
     username: null,
     books: [],
