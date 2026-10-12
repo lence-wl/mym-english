@@ -8,6 +8,8 @@ declare interface UserInfo {
   username: null | string //用户名
   currentBookUrl: null | string //当前阅读书籍的地址
   id: number | string
+  /** 用户角色：admin-管理员，common-普通，vip-会员（用于判断能否删除他人书籍） */
+  role?: string
   books: { title: string; id: number }[] // 在读+已读书籍
   wordCount: number
   sentenceCount: number

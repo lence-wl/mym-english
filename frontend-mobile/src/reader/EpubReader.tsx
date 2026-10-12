@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import Epub, { type Book, type Contents, type Rendition } from 'epubjs'
-import { epubThemes } from '../theme/EpubThemeConfig'
+import { epubThemes, buildTypographyRules } from '../theme/EpubThemeConfig'
 
 interface EpubReaderProps {
   /** epub 地址：/uploads/xxx */
@@ -8,6 +8,8 @@ interface EpubReaderProps {
   /** 初始阅读位置（cfi） */
   initialLocation?: string | number | null
   fontSize: number
+  /** 正文行高倍数 */
+  lineHeight: number
   themeKey: string
   /** 阅读位置变化（cfi） */
   onRelocated: (cfi: string) => void
@@ -19,7 +21,8 @@ interface EpubReaderProps {
   onBookReady?: (book: Book, rendition: Rendition) => void
 }
 
-const TAP_ZONE = 0.3 // 左右各 30% 为翻页热区
+/** 左右翻页模式下，两侧各 25% 为翻页热区（剩余 50% 留给工具栏切换，减少误触） */
+const TAP_ZONE = 0.25
 const LONG_PRESS_MS = 450 // 长按判定时长（松手早于它视为轻点）
 const MOVE_TOLERANCE = 10 // 长按期间允许的位移，超出即视为滑动
 const ARM_DEAD_ZONE = 16 // 长按命中词后的死区：松手前位移小于它 → 始终算查词，避免手抖变成选段
@@ -32,7 +35,8 @@ const isWordChar = (ch?: string) => !!ch && /[A-Za-z'’-]/.test(ch)
  * 移动端 epub 阅读内核。
  *
  * 与桌面端的差异（桌面端为 scrolled + 连续滚动，且依赖 mousedown/mouseup）：
- * 1. 采用 paginated 单页横向翻页，更贴近手机阅读习惯；
+ * 1. 固定左右翻页（paginated + default manager）：单页横向翻页，靠左右热区/横滑换页，
+ *    并给容器加平滑过渡避免"硬切"；
  * 2. 正文禁用原生选择（见 EpubThemeConfig），查词查句都改成自研手势：
  *    长按不动 = 查词，长按后继续拖动划词 = 查句，系统不会弹出拷贝/查询/翻译菜单；
  * 3. 监听 resize/orientationchange，横竖屏切换后重新排版。
@@ -41,6 +45,7 @@ const EpubReader = ({
   url,
   initialLocation,
   fontSize,
+  lineHeight,
   themeKey,
   onRelocated,
   onLookup,
@@ -59,6 +64,13 @@ const EpubReader = ({
     const win = contents.window as any
     const doc = contents.document
     if (!doc) return
+
+    // epubjs 换页是靠直接改 container.scrollLeft 实现的，默认瞬时跳变（"硬切"）。
+    // 给滚动容器加平滑过渡，换页就有滑动感。容器由 manager.render 创建，内容加载时必定已存在。
+    const container = (renditionRef.current as any)?.manager?.container as
+      | HTMLElement
+      | undefined
+    if (container) container.style.scrollBehavior = 'smooth'
 
     let startX = 0
     let startY = 0
@@ -254,7 +266,9 @@ const EpubReader = ({
       if (!t) return
       // 兜底阻断 WebKit 的原生选择/呼叫菜单机器（正文样式已禁用选择，这里再压一层）。
       // 书内链接保持默认行为，避免影响跳转。
-      if (!(e.target as Element | null)?.closest?.('a[href]')) e.preventDefault()
+      if (!(e.target as Element | null)?.closest?.('a[href]')) {
+        e.preventDefault()
+      }
       handleStart(t.clientX, t.clientY)
     }
     const onTouchMove = (e: TouchEvent) => {
@@ -323,6 +337,7 @@ const EpubReader = ({
     const rendition = book.renderTo(holderRef.current, {
       width: '100%',
       height: '100%',
+      // 固定左右翻页
       flow: 'paginated',
       manager: 'default',
       spread: 'none',
@@ -330,10 +345,12 @@ const EpubReader = ({
     })
     renditionRef.current = rendition
 
-    // 注册主题
+    // 注册配色主题
     Object.entries(epubThemes).forEach(([tag, styles]) => {
       rendition.themes.register(tag, styles as any)
     })
+    // 行高挂在与配色无关的 default 主题上：epubjs 每次加载内容都会注入它
+    rendition.themes.register('default', buildTypographyRules(lineHeight) as any)
     rendition.themes.select(themeKey)
     rendition.themes.fontSize(`${fontSize}px`)
 
@@ -344,7 +361,9 @@ const EpubReader = ({
 
     // 阅读位置变化
     rendition.on('relocated', (loc: any) => {
-      if (loc?.start?.cfi) cbRef.current.onRelocated(loc.start.cfi)
+      if (loc?.start?.cfi) {
+        cbRef.current.onRelocated(loc.start.cfi)
+      }
     })
 
     book.loaded.navigation.then(() => {
@@ -399,6 +418,18 @@ const EpubReader = ({
   useEffect(() => {
     renditionRef.current?.themes.fontSize(`${fontSize}px`)
   }, [fontSize])
+
+  // 行高调整：重注册 default 主题即可原子更新，无需重建实例
+  useEffect(() => {
+    const r = renditionRef.current
+    if (!r) return
+    // 同一 key 再次注册是"追加"而非替换，先清掉旧节点，避免拖动滑杆时规则越积越多
+    // getContents() 运行时返回数组，但 epubjs 的类型声明写的是单个 Contents，这里强转
+    ;((r.getContents() as unknown) as any[]).forEach((c) => {
+      c.document?.getElementById?.('epubjs-inserted-css-default')?.remove()
+    })
+    r.themes.register('default', buildTypographyRules(lineHeight) as any)
+  }, [lineHeight])
 
   return <div ref={holderRef} className="h-full w-full" />
 }

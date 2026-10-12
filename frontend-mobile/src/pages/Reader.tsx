@@ -119,17 +119,21 @@ const Reader = () => {
       ) : (
         // 正文必须避开顶部状态栏与底部 Home 指示条：已安装 PWA（black-translucent）
         // 下网页内容会伸到状态栏下方，不加内边距就会与状态栏重叠
+        // 左右内边距即"页边距"：容器变窄后 epubjs 会把单页宽度一并收窄，形成左右留白
         <div
           className="absolute inset-0"
           style={{
             paddingTop: 'var(--safe-top)',
             paddingBottom: 'var(--safe-bottom)',
+            paddingLeft: themeConfig.pageMargin,
+            paddingRight: themeConfig.pageMargin,
           }}
         >
           <EpubReader
             url={bookUrl}
             initialLocation={userInfo.currentBookLoc}
             fontSize={themeConfig.fontSize}
+            lineHeight={themeConfig.lineHeight}
             themeKey={themeConfig.theme}
             onRelocated={handleRelocated}
             onLookup={setSelectedText}
@@ -202,7 +206,7 @@ const Reader = () => {
       {/* 阅读设置抽屉 */}
       <Drawer
         placement="bottom"
-        height={230}
+        height={360}
         open={openSetting}
         onClose={() => setOpenSetting(false)}
         closable={false}
@@ -225,6 +229,32 @@ const Reader = () => {
               step={1}
               value={themeConfig.fontSize}
               onChange={(v) => state.updateThemeConfig({ fontSize: v })}
+            />
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm">行高</span>
+              <span className="text-sm opacity-70">{themeConfig.lineHeight.toFixed(1)}</span>
+            </div>
+            <Slider
+              min={1.2}
+              max={2.4}
+              step={0.1}
+              value={themeConfig.lineHeight}
+              onChange={(v) => state.updateThemeConfig({ lineHeight: v })}
+            />
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm">左右页边距</span>
+              <span className="text-sm opacity-70">{themeConfig.pageMargin}px</span>
+            </div>
+            <Slider
+              min={8}
+              max={48}
+              step={4}
+              value={themeConfig.pageMargin}
+              onChange={(v) => state.updateThemeConfig({ pageMargin: v })}
             />
           </div>
         </div>

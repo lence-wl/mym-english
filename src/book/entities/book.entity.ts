@@ -55,6 +55,10 @@ export class Book {
   @Prop({ type: Number, default: 1 })
   status: number; // 状态：1-正常，0-禁用
 
+  /** 是否公开：false-仅上传者与管理员可见（默认），true-所有登录用户可见 */
+  @Prop({ type: Boolean, default: false })
+  isPublic: boolean;
+
   @Prop({ type: Number, required: true })
   userId: number; // 上传者ID
 

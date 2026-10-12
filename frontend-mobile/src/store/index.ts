@@ -9,6 +9,8 @@ declare interface UserInfo {
   username: null | string
   currentBookUrl: null | string
   id: number | string
+  /** 用户角色：admin-管理员，common-普通，vip-会员（用于判断能否删除他人书籍） */
+  role?: string
   books: { title: string; id: number }[]
   wordCount: number
   sentenceCount: number
@@ -23,6 +25,10 @@ export interface State {
     fontSize: number
     opacity: number
     readerWidth: string
+    /** 正文行高倍数 */
+    lineHeight: number
+    /** 正文左右页边距（px） */
+    pageMargin: number
   }
   setUserInfo: (userInfo: any) => void
   updateUserInfo: (userInfo: any) => void
@@ -48,6 +54,8 @@ const useStore = create<State>()((set, get) => ({
     fontSize: Number(localStorage.getItem('fontSize') || 20),
     readerWidth: localStorage.getItem('readerWidth') || '100%',
     opacity: Number(localStorage.getItem('opacity') || 100),
+    lineHeight: Number(localStorage.getItem('lineHeight') || 1.6),
+    pageMargin: Number(localStorage.getItem('pageMargin') || 16),
   },
   setUserInfo: (userInfo: any) => {
     set({ userInfo: { ...userInfo, books: [] } })

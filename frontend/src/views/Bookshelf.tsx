@@ -1,18 +1,19 @@
 import React, { useState, useEffect } from 'react'
-import { ReadOutlined } from '@ant-design/icons'
+import { ReadOutlined, DeleteOutlined } from '@ant-design/icons'
 import {
-  Space,
   Typography,
-  Tag,
   Empty,
   Row,
   Col,
   Spin,
   Card as AntCard,
   notification,
+  Button,
+  Popconfirm,
+  Segmented,
+  message,
 } from 'antd'
-import { getBookList } from '../api/book'
-import staticData from '../staticData/index'
+import { getBookList, deleteBook, updateBookVisibility } from '../api/book'
 import { useNavigate } from 'react-router-dom'
 import useStore from '../store'
 import { updateReadingStatus } from '../api/user'
@@ -23,31 +24,21 @@ interface BookItem {
   id: number
   title: string
   author: string
+  userId?: number // 上传者ID
+  readerCount?: number // 在读人数
+  isPublic?: boolean // 是否公开（公开后所有登录用户可见）
 }
 
-// 分类标签组件
-const CategoryTag = ({
-  category,
-  isActive,
-  onClick,
-}: {
-  category: string
-  isActive: boolean
-  onClick: () => void
-}) => (
-  <Tag
-    color={'#000'}
-    className={`px-3 py-1 text-sm rounded-full cursor-pointer transition-opacity hover:opacity-90 ${
-      isActive ? 'font-bold' : ''
-    }`}
-    onClick={onClick}
-  >
-    {category}
-  </Tag>
-)
+/** 书架分类：公共书籍 / 我的上传 /（仅管理员）全部书籍 */
+type TabKey = 'public' | 'mine' | 'all'
 
 // 书籍卡片组件 - 修复书脊跟随移动问题
-const BookCard: React.FC<{ book: BookItem }> = ({ book }) => {
+const BookCard: React.FC<{
+  book: BookItem
+  editing: boolean
+  onDeleted: (id: number) => void
+  onVisibilityChanged: (id: number, isPublic: boolean) => void
+}> = ({ book, editing, onDeleted, onVisibilityChanged }) => {
   const navigate = useNavigate()
   const state = useStore()
   // 生成基于书籍ID的随机颜色，确保一致性
@@ -83,6 +74,34 @@ const BookCard: React.FC<{ book: BookItem }> = ({ book }) => {
       })
     }
   }
+
+  const isAdmin = state.userInfo.role === 'admin'
+
+  /** 仅上传者本人或管理员可删除（服务端同样会校验） */
+  const canDelete = isAdmin || String(book.userId) === String(state.userInfo.id)
+
+  const handleDelete = async () => {
+    try {
+      await deleteBook(book.id)
+      onDeleted(book.id)
+      message.success('已删除')
+    } catch {
+      message.error('删除失败，请稍后重试')
+    }
+  }
+
+  /** 管理员切换书籍公开状态（服务端同样会校验管理员身份） */
+  const handleToggleVisibility = async () => {
+    const next = !book.isPublic
+    try {
+      await updateBookVisibility(book.id, next)
+      onVisibilityChanged(book.id, next)
+      message.success(next ? '已公开' : '已下架')
+    } catch {
+      message.error('操作失败，请稍后重试')
+    }
+  }
+
   return (
     <div className="book-card-container relative h-full group cursor-pointer">
       {/* 整个卡片内容，包括书脊和主卡片 */}
@@ -152,6 +171,14 @@ const BookCard: React.FC<{ book: BookItem }> = ({ book }) => {
               }}
             ></div>
 
+            {/* 可见性角标 */}
+            <div
+              className="absolute top-2 left-3 z-20 px-2 py-0.5 rounded text-xs text-white"
+              style={{ background: 'rgba(0,0,0,0.45)' }}
+            >
+              {book.isPublic ? '公开' : '私有'}
+            </div>
+
             <Typography.Title
               level={5}
               className="m-0 text-center font-bold leading-tight z-10 px-3 text-white drop-shadow-md"
@@ -161,16 +188,58 @@ const BookCard: React.FC<{ book: BookItem }> = ({ book }) => {
             <Typography.Text className="mt-2 opacity-90 z-10 text-white drop-shadow-sm">
               {book.author}
             </Typography.Text>
+
+            {/* 编辑态：管理员公开/下架切换 */}
+            {editing && isAdmin && (
+              <Button
+                size="small"
+                className="absolute right-10 top-2 z-20"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleToggleVisibility()
+                }}
+              >
+                {book.isPublic ? '下架' : '公开'}
+              </Button>
+            )}
+
+            {/* 编辑态：删除角标（二次确认） */}
+            {editing && canDelete && (
+              <Popconfirm
+                title="删除书籍"
+                description={`确定删除《${book.title}》吗？`}
+                okText="删除"
+                cancelText="取消"
+                okButtonProps={{ danger: true }}
+                onConfirm={handleDelete}
+              >
+                <Button
+                  danger
+                  size="small"
+                  shape="circle"
+                  icon={<DeleteOutlined />}
+                  className="absolute right-2 top-2 z-20"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </Popconfirm>
+            )}
           </div>
 
           {/* 书籍信息 */}
           <div className="p-4 bg-white flex flex-col">
-            <div
-              onClick={() => {
-                goReader(book.id)
-              }}
-            >
-              <div className="flex justify-between items-center text-xs text-[#333] bolder">
+            <div className="flex justify-between items-center text-xs text-[#666]">
+              <span>
+                {book.isPublic
+                  ? `${book.readerCount || 0} 人在读`
+                  : '仅自己可见'}
+              </span>
+              <div
+                className="flex items-center gap-1 text-[#333] bolder cursor-pointer"
+                onClick={() => {
+                  if (editing) return
+                  goReader(book.id)
+                }}
+              >
                 <span>阅读</span>
                 <ReadOutlined />
               </div>
@@ -184,41 +253,70 @@ const BookCard: React.FC<{ book: BookItem }> = ({ book }) => {
 
 const EbookShelf: React.FC = () => {
   // 状态管理
+  const state = useStore()
   const [books, setBooks] = useState<BookItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeCategory, setActiveCategory] = useState<string>('全部')
+  /** 当前分类 */
+  const [tab, setTab] = useState<TabKey>('public')
+  /** 编辑模式：开启后卡片右上角出现删除角标 */
+  const [editing, setEditing] = useState(false)
+
+  const isAdmin = state.userInfo.role === 'admin'
+
+  // 管理员多一个「全部书籍」用于挑选公开；普通用户只有公共书籍与自己上传
+  const tabs = [
+    { key: 'public' as TabKey, label: '公共书籍' },
+    { key: 'mine' as TabKey, label: '我的上传' },
+    ...(isAdmin ? [{ key: 'all' as TabKey, label: '全部书籍' }] : []),
+  ]
+
+  /** 按分类拼查询条件：公共=仅公开书；我的上传=仅自己上传；全部=不加限制 */
+  const queryFor = (key: TabKey) => {
+    if (key === 'public') return { isPublic: true }
+    if (key === 'mine') return { userId: state.userInfo.id }
+    return {}
+  }
 
   const getBookListByPagi = async () => {
     setLoading(true)
     const { data } = await getBookList({
       limit: 10,
       page: 1,
+      ...queryFor(tab),
     })
     setBooks(data?.items || [])
     setLoading(false)
   }
 
-  // 初始化加载数据
+  // 切换分类时重新加载
   useEffect(() => {
     getBookListByPagi()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
 
   return (
     <div className="min-h-screen flex flex-col">
       {/* 主要内容区 */}
       <main className="flex-1 px-5 md:px-0 py-6 max-w-7xl mx-auto w-full">
-        {/* 分类筛选栏 */}
-        <div className="mb-6">
-          <Space size="middle" wrap>
-            {staticData.bookTypeList.map((category) => (
-              <CategoryTag
-                key={category}
-                category={category}
-                isActive={activeCategory === category}
-                onClick={() => setActiveCategory(category)}
-              />
-            ))}
-          </Space>
+        {/* 分类 tab：公共书籍 / 我的上传 /（管理员）全部书籍 */}
+        <Segmented
+          className="mb-4"
+          value={tab}
+          options={tabs.map((item) => ({ label: item.label, value: item.key }))}
+          onChange={(value) => {
+            setEditing(false)
+            setTab(value as TabKey)
+          }}
+        />
+
+        {/* 编辑开关 */}
+        <div className="mb-6 flex justify-end">
+          {/* 「公共书籍」无可管理内容，不显示编辑 */}
+          {books.length > 0 && tab !== 'public' && (
+            <Button onClick={() => setEditing((v) => !v)}>
+              {editing ? '完成' : '编辑'}
+            </Button>
+          )}
         </div>
 
         {/* 书架内容区 */}
@@ -234,7 +332,20 @@ const EbookShelf: React.FC = () => {
                   key={book.id}
                   className="flex"
                 >
-                  <BookCard book={book} />
+                  <BookCard
+                    book={book}
+                    editing={editing}
+                    onDeleted={(id) =>
+                      setBooks((prev) => prev.filter((item) => item.id !== id))
+                    }
+                    onVisibilityChanged={(id, isPublic) =>
+                      setBooks((prev) =>
+                        prev.map((item) =>
+                          item.id === id ? { ...item, isPublic } : item,
+                        ),
+                      )
+                    }
+                  />
                 </Col>
               ))}
             </Row>

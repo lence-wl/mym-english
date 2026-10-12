@@ -1,5 +1,12 @@
-import { IsOptional, IsNumber, IsString, Min, Max } from 'class-validator';
-import { Type } from 'class-transformer';
+import {
+  IsOptional,
+  IsNumber,
+  IsString,
+  IsBoolean,
+  Min,
+  Max,
+} from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 
 export class QueryBookDto {
   @IsOptional()
@@ -30,4 +37,10 @@ export class QueryBookDto {
   @IsOptional()
   @Type(() => Number)
   userId?: number;
+
+  /** 是否只看公开书籍（书架「公共书籍」tab）；不传则不限 */
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  isPublic?: boolean;
 }

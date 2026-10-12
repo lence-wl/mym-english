@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -12,14 +13,21 @@ import { QueryBookDto } from './dto/query-book.dto';
 import { createReadStream, existsSync } from 'fs';
 import { UploadService } from 'src/upload/upload.service';
 import { SequenceService } from '../common/sequence.service';
+import {
+  User,
+  UserDocument,
+  UserRole,
+} from '../auth/entities/user.entity';
 
-/** 列表/详情返回的字段（不含文件路径等内部信息） */
+/** 列表/详情返回的字段（不含文件路径等内部信息；userId 用于前端判断能否删除） */
 const LIST_PROJECTION = {
   title: 1,
   author: 1,
   downloadCount: 1,
   status: 1,
+  isPublic: 1,
   createdAt: 1,
+  userId: 1,
 };
 
 /** 转义正则元字符，供模糊查询使用 */
@@ -34,7 +42,41 @@ export class BookService {
     private readonly bookModel: Model<BookDocument>,
     private readonly uploadService: UploadService, // 注入上传服务
     private readonly sequenceService: SequenceService,
+    @InjectModel(User.name)
+    private readonly userModel: Model<UserDocument>, // 用于在读数统计与删除权限校验
   ) {}
+
+  /**
+   * 批量统计各本书的「在读人数」
+   * 口径：把该书设为当前在读的用户数（users.currentBookId === 书籍ID）
+   */
+  private async countReaders(ids: number[]): Promise<Map<number, number>> {
+    if (!ids.length) return new Map();
+    const rows = await this.userModel.aggregate<{
+      _id: number;
+      count: number;
+    }>([
+      { $match: { currentBookId: { $in: ids }, deletedAt: null } },
+      { $group: { _id: '$currentBookId', count: { $sum: 1 } } },
+    ]);
+    return new Map(rows.map((row) => [row._id, row.count]));
+  }
+
+  /** 判断用户是否为管理员（JWT 中不含 role，需查库） */
+  private async isAdmin(userId: number): Promise<boolean> {
+    const user = await this.userModel.findOne({ _id: userId, deletedAt: null });
+    return user?.role === UserRole.ADMIN;
+  }
+
+  /**
+   * 构造「可见性」查询条件
+   * - 管理员：不加限制，可看到所有书籍
+   * - 普通用户：公开书籍 + 自己上传的书籍（上传默认私有）
+   */
+  private async visibilityFilter(userId: number): Promise<Record<string, any>> {
+    if (await this.isAdmin(userId)) return {};
+    return { $or: [{ isPublic: true }, { userId }] };
+  }
 
   /**
    * 上传电子书
@@ -73,8 +115,8 @@ export class BookService {
   /**
    * 获取电子书列表
    */
-  async findAll(query: QueryBookDto) {
-    const { page, limit, title, author, status, userId } = query;
+  async findAll(query: QueryBookDto, user: { id: number }) {
+    const { page, limit, title, author, status, userId, isPublic } = query;
     const skip = (page - 1) * limit;
 
     // 构建查询条件
@@ -83,6 +125,9 @@ export class BookService {
     if (author) filter.author = { $regex: escapeRegExp(author), $options: 'i' };
     if (status !== undefined) filter.status = status;
     if (userId) filter.userId = userId;
+    if (isPublic !== undefined) filter.isPublic = isPublic;
+    // 可见性：管理员可见全部；普通用户仅见公开书籍与自己上传的书籍
+    Object.assign(filter, await this.visibilityFilter(user.id));
 
     // 执行分页查询
     const [items, total] = await Promise.all([
@@ -94,9 +139,16 @@ export class BookService {
       this.bookModel.countDocuments(filter),
     ]);
 
+    // 批量补齐在读人数，避免逐本查询
+    const readerCounts = await this.countReaders(items.map((book) => book._id));
+    const data = items.map((book) => ({
+      ...book.toObject(),
+      readerCount: readerCounts.get(book._id) ?? 0,
+    }));
+
     return {
       data: {
-        items,
+        items: data,
         pagination: {
           total,
           page,
@@ -110,8 +162,13 @@ export class BookService {
   /**
    * 获取单本电子书详情
    */
-  async findOne(id: number) {
-    const book = await this.bookModel.findOne({ _id: id, deletedAt: null });
+  async findOne(id: number, user: { id: number }) {
+    const book = await this.bookModel.findOne({
+      _id: id,
+      deletedAt: null,
+      ...(await this.visibilityFilter(user.id)),
+    });
+    // 不存在或对当前用户不可见，统一返回 404，避免泄露书籍是否存在
     if (!book) {
       throw new NotFoundException(`电子书ID ${id} 不存在`);
     }
@@ -123,24 +180,21 @@ export class BookService {
   /**
    * 通过多个ID获取书籍列表
    */
-  async findByIds(ids: number[]) {
+  async findByIds(ids: number[], user: { id: number }) {
     if (!ids || ids.length === 0) {
       throw new BadRequestException('请提供有效的书籍ID列表');
     }
+    // 仅返回对当前用户可见的书籍。
+    // 注：刻意不再「缺失即报错」——该接口被首页用于批量取在读书目，
+    // 一旦其中某本书被下架或转为私有，整体报错会打断首页加载，故只返回可见子集。
     const books = await this.bookModel.find(
-      { _id: { $in: ids }, deletedAt: null },
+      {
+        _id: { $in: ids },
+        deletedAt: null,
+        ...(await this.visibilityFilter(user.id)),
+      },
       LIST_PROJECTION,
     );
-
-    // 检查是否有不存在的ID
-    const foundIds = books.map((book) => book._id);
-    const notFoundIds = ids.filter((id) => !foundIds.includes(id));
-
-    if (notFoundIds.length > 0) {
-      throw new NotFoundException(
-        `以下书籍ID不存在: ${notFoundIds.join(', ')}`,
-      );
-    }
 
     return {
       data: books,
@@ -150,37 +204,68 @@ export class BookService {
   /**
    * 更新电子书信息
    */
-  async update(id: number, updateBookDto: UpdateBookDto) {
-    // 检查电子书是否存在
-    await this.findOne(id);
+  async update(id: number, updateBookDto: UpdateBookDto, user: { id: number }) {
+    // 检查电子书是否存在且对当前用户可见
+    const { data: book } = await this.findOne(id, user);
+
+    // 校验操作权限：上传者本人 or 管理员
+    if (book.userId !== user.id && !(await this.isAdmin(user.id))) {
+      throw new ForbiddenException('仅上传者本人或管理员可以修改该书籍');
+    }
 
     // 执行更新（updatedAt 由 schema 的 timestamps 自动维护）
     await this.bookModel.updateOne({ _id: id }, { $set: { ...updateBookDto } });
 
     // 返回更新后的信息
-    return this.findOne(id);
+    return this.findOne(id, user);
   }
 
   /**
    * 删除电子书（软删除）
+   * 仅上传者本人或管理员可删除
    */
-  async remove(id: number) {
-    // const book = await this.findOne(id);
-    // 删除文件
+  async remove(id: number, user: { id: number }) {
+    const book = await this.bookModel.findOne({ _id: id, deletedAt: null });
+    if (!book) {
+      throw new NotFoundException(`电子书ID ${id} 不存在`);
+    }
+
+    // 校验操作权限：上传者本人 or 管理员
+    if (book.userId !== user.id && !(await this.isAdmin(user.id))) {
+      throw new ForbiddenException('仅上传者本人或管理员可以删除该书籍');
+    }
+
     // 软删除记录
     await this.bookModel.updateOne(
       { _id: id },
       { $set: { deletedAt: new Date() } },
     );
-    // return { message: `电子书ID ${id} 已删除` };
     return id as any;
+  }
+
+  /**
+   * 设置书籍公开状态（仅管理员）
+   * 公开后所有登录用户可见；私有则仅上传者与管理员可见
+   */
+  async setVisibility(id: number, isPublic: boolean, user: { id: number }) {
+    if (!(await this.isAdmin(user.id))) {
+      throw new ForbiddenException('仅管理员可以设置书籍的公开状态');
+    }
+
+    const book = await this.bookModel.findOne({ _id: id, deletedAt: null });
+    if (!book) {
+      throw new NotFoundException(`电子书ID ${id} 不存在`);
+    }
+
+    await this.bookModel.updateOne({ _id: id }, { $set: { isPublic } });
+    return { data: { id, isPublic } };
   }
 
   /**
    * 下载电子书
    */
-  async downloadBook(id: number) {
-    const { data: book } = await this.findOne(id);
+  async downloadBook(id: number, user: { id: number }) {
+    const { data: book } = await this.findOne(id, user);
 
     // 数据库中 filePath 只存文件名，需拼上传目录才是真实路径
     const filePath = this.uploadService.resolveFilePath(book.filePath);
