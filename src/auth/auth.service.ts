@@ -163,7 +163,9 @@ export class AuthService {
     }
 
     // 密码加密
-    const saltRounds = this.configService.get<number>('BCRYPT_SALT_ROUNDS', 10);
+    // 注意：bcrypt.hash 的第二个参数为 number 时表示轮数；若传入字符串会被当作
+    // 完整 salt 解析并抛 "Invalid salt version"。env 注入的是字符串，必须转成数字。
+    const saltRounds = Number(this.configService.get('BCRYPT_SALT_ROUNDS')) || 10;
     const hashedPassword = await bcrypt.hash(
       createUserDto.password,
       saltRounds,
