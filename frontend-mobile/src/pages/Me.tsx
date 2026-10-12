@@ -1,14 +1,31 @@
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from 'antd'
 import { RiAddLine, RiLogoutBoxRLine } from '@remixicon/react'
 import PageShell from '../components/PageShell'
 import ThemeSwitcher from '../components/ThemeSwitcher'
+import { me } from '../api/user'
 import useStore from '../store'
 
 /** 我的：账号信息、阅读统计、外观与入口 */
 const Me = () => {
   const navigate = useNavigate()
-  const { userInfo, resetUserInfo } = useStore()
+  const { userInfo, resetUserInfo, updateUserInfo } = useStore()
+
+  // 进入页面时刷新用户信息：生词/句子统计会随阅读与收藏变化，避免显示旧数据
+  useEffect(() => {
+    let alive = true
+    me()
+      .then(({ data }) => {
+        if (alive) updateUserInfo(data)
+      })
+      .catch(() => {
+        /* 刷新失败时沿用现有数据，不阻塞页面 */
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const logout = () => {
     localStorage.removeItem('token')

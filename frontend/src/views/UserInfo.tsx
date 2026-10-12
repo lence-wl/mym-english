@@ -3,6 +3,7 @@ import React, { useEffect, useRef } from 'react'
 import { Card, Col, Row, Button, Statistic } from 'antd'
 import ThemeSwitcher from '../components/ThemeSwitcher'
 import { getBooksDetailByIds } from '../api/book'
+import { me } from '../api/user'
 import useStore from '../store'
 import { useNavigate } from 'react-router-dom'
 // 导入 ECharts 核心和词云组件
@@ -15,6 +16,21 @@ export default () => {
   const chartRef = useRef<HTMLDivElement>(null) // 图表容器引用
   let myChart: echarts.ECharts | null = null
   const navigate = useNavigate()
+
+  // 进入页面时刷新用户信息：生词/句子统计会随阅读与收藏变化，避免显示旧数据
+  useEffect(() => {
+    let alive = true
+    me()
+      .then(({ data }) => {
+        if (alive) useStore.getState().updateUserInfo(data)
+      })
+      .catch(() => {
+        /* 刷新失败时沿用现有数据，不阻塞页面 */
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   // 生成随机颜色（RGB格式）
   const getRandomColor = () => {
