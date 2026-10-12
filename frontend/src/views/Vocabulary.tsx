@@ -1,5 +1,6 @@
 import useStore from '../store'
 import { getWordListByPagi } from '../api/word'
+import { fetchUserBooks } from '../utils/userBooks'
 import type { PaginationProps } from 'antd'
 import { useEffect, useState } from 'react'
 import { Pagination, Form, Select, Radio, Space, Button, Row, Col } from 'antd'
@@ -83,6 +84,21 @@ export default () => {
       getWords()
     }
   }, [userInfo.books.length])
+
+  // 进入页面时重新拉取书籍列表：新读的书无需等下次登录即可出现在下拉中
+  useEffect(() => {
+    let alive = true
+    fetchUserBooks()
+      .then((next) => {
+        if (alive) useStore.getState().updateUserInfo({ books: next })
+      })
+      .catch(() => {
+        /* 刷新失败时沿用现有列表，不阻塞页面 */
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   // 组件卸载停止播放
   useEffect(() => {

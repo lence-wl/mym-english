@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button, Empty, Select, Spin, Tag } from 'antd'
 import { RiDeleteBinLine, RiLoader2Line, RiVolumeUpLine } from '@remixicon/react'
 import { deleteWordByText, getWordListByPagi } from '../api/word'
+import { fetchUserBooks } from '../utils/userBooks'
 import { speak, stopSpeaking } from '../utils/speech'
 import useStore from '../store'
 
@@ -68,6 +69,21 @@ const EntryList = ({ isSentence, onBookChange }: EntryListProps) => {
     fetchPage(1, first)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userInfo.id, books.length, isSentence])
+
+  // 进入页面时重新拉取书籍列表：新读的书无需等下次登录即可出现在下拉中
+  useEffect(() => {
+    let alive = true
+    fetchUserBooks()
+      .then((next) => {
+        if (alive) useStore.getState().updateUserInfo({ books: next })
+      })
+      .catch(() => {
+        /* 刷新失败时沿用现有列表，不阻塞页面 */
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   // 朗读：取到音频前显示 loading，期间禁止重复点击（参考桌面端 ActionIcons）
   const handleSpeak = async (word: string) => {
