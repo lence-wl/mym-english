@@ -181,13 +181,15 @@ const Bookshelf = () => {
                   className="h-32 flex flex-col items-center justify-center px-3"
                   style={{ background: COVER_COLORS[book.id % COVER_COLORS.length] }}
                 >
-                  {/* 可见性角标 */}
-                  <div
-                    className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded text-[10px] text-white"
-                    style={{ background: 'rgba(0,0,0,0.45)' }}
-                  >
-                    {book.isPublic ? '公开' : '私有'}
-                  </div>
+                  {/* 可见性角标：仅管理员需要区分公开/私有，普通用户不显示 */}
+                  {isAdmin && (
+                    <div
+                      className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded text-[10px] text-white"
+                      style={{ background: 'rgba(0,0,0,0.45)' }}
+                    >
+                      {book.isPublic ? '公开' : '私有'}
+                    </div>
+                  )}
                   <div className="text-white font-bold text-center leading-snug line-clamp-3 drop-shadow">
                     {book.title}
                   </div>

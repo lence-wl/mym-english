@@ -171,13 +171,15 @@ const BookCard: React.FC<{
               }}
             ></div>
 
-            {/* 可见性角标 */}
-            <div
-              className="absolute top-2 left-3 z-20 px-2 py-0.5 rounded text-xs text-white"
-              style={{ background: 'rgba(0,0,0,0.45)' }}
-            >
-              {book.isPublic ? '公开' : '私有'}
-            </div>
+            {/* 可见性角标：仅管理员需要区分公开/私有，普通用户不显示 */}
+            {isAdmin && (
+              <div
+                className="absolute top-2 left-3 z-20 px-2 py-0.5 rounded text-xs text-white"
+                style={{ background: 'rgba(0,0,0,0.45)' }}
+              >
+                {book.isPublic ? '公开' : '私有'}
+              </div>
+            )}
 
             <Typography.Title
               level={5}
