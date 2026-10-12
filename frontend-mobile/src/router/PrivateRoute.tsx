@@ -33,6 +33,8 @@ const PrivateRoute = () => {
       }
     } catch {
       localStorage.removeItem('token')
+      // 登录态失效同样要清空用户信息，避免下次以别的账号登录后仍显示旧数据
+      state.resetUserInfo()
       navigate('/login', { replace: true })
     } finally {
       setLoading(false)

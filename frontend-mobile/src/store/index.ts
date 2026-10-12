@@ -32,23 +32,28 @@ export interface State {
   }
   setUserInfo: (userInfo: any) => void
   updateUserInfo: (userInfo: any) => void
+  /** 清空用户信息：退出登录/登录态失效时调用，避免切号后残留上个账号的数据 */
+  resetUserInfo: () => void
   updateThemeConfig: (themeConfig: any) => void
 }
 
+/** 初始用户信息：登录前 / 登出后统一回到这个状态 */
+const INITIAL_USER_INFO: UserInfo = {
+  currentBookId: null,
+  currentBookLoc: null,
+  myBookData: [],
+  currentBookUrl: null,
+  username: null,
+  books: [],
+  id: '',
+  wordCount: 0,
+  sentenceCount: 0,
+  readingBook: [],
+  completedBooks: [],
+}
+
 const useStore = create<State>()((set, get) => ({
-  userInfo: {
-    currentBookId: null,
-    currentBookLoc: null,
-    myBookData: [],
-    currentBookUrl: null,
-    username: null,
-    books: [],
-    id: '',
-    wordCount: 0,
-    sentenceCount: 0,
-    readingBook: [],
-    completedBooks: [],
-  },
+  userInfo: { ...INITIAL_USER_INFO },
   themeConfig: {
     theme: (localStorage.getItem('theme') as ThemeKey) || 'white',
     fontSize: Number(localStorage.getItem('fontSize') || 20),
@@ -62,6 +67,9 @@ const useStore = create<State>()((set, get) => ({
   },
   updateUserInfo: (data: any) => {
     set({ userInfo: { ...get().userInfo, ...data } })
+  },
+  resetUserInfo: () => {
+    set({ userInfo: { ...INITIAL_USER_INFO } })
   },
   updateThemeConfig: (data: any) => {
     Object.keys(data || {}).forEach((key) => {

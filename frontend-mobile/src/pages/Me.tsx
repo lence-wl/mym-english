@@ -8,10 +8,13 @@ import useStore from '../store'
 /** 我的：账号信息、阅读统计、外观与入口 */
 const Me = () => {
   const navigate = useNavigate()
-  const { userInfo } = useStore()
+  const { userInfo, resetUserInfo } = useStore()
 
   const logout = () => {
     localStorage.removeItem('token')
+    // 必须清空内存里的用户信息：否则切号后 PrivateRoute 因 username 仍在而不重新拉取，
+    // 页面会继续显示上一个账号的数据
+    resetUserInfo()
     navigate('/login', { replace: true })
   }
 
