@@ -191,7 +191,16 @@ const Login = () => {
         />
       </div>
       <div className="pb-3 text-center text-xs opacity-50" style={{ paddingBottom: 'calc(12px + var(--safe-bottom))' }}>
-        豫ICP备2025153216号 · ©{new Date().getFullYear()}
+        <a
+          href="https://beian.miit.gov.cn/"
+          target="_blank"
+          rel="noreferrer"
+          style={{ color: 'inherit' }}
+        >
+          豫ICP备2025153216号
+        </a>
+        {' · '}©{new Date().getFullYear()}
+        {/* 公安联网备案办好后，在「·」前追加公安备案号并链接到 https://beian.mps.gov.cn/ */}
       </div>
     </div>
   )
