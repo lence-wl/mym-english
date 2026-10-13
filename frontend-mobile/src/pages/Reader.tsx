@@ -69,14 +69,12 @@ const Reader = () => {
   // 卸载时 flush:用户翻页后 150ms 内切走 Tab,组件 unmount 立即触发最后一次上报
   useEffect(() => () => reportProgress.flush(), [reportProgress])
 
-  // 切后台 / 关闭 App / 刷新页面时,React 来不及跑 unmount cleanup,
-  // 这里在 document 上挂 pagehide + visibilitychange(hidden) 兜底:
-  // 直接从 store 取最新 cfi,用 fetch keepalive 把请求发完。
+  // 切后台 / 关闭 App / 刷新页面时,React 来不及跑 unmount cleanup,这里兜底。
+  // 只 flush「防抖队列里待发的上报」,不能无条件写 store 里的 currentBookLoc:
+  // App 从后台恢复(未重新加载)时 store 可能还是本机旧位置,直接写回会把
+  // 另一端(PC)刚存下的进度覆盖掉,导致多端进度互相打架。
   useEffect(() => {
-    const flushOnHide = () => {
-      const { userInfo } = useStore.getState()
-      flushReadingStatus(userInfo.currentBookId, userInfo.currentBookLoc)
-    }
+    const flushOnHide = () => reportProgress.flush()
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') flushOnHide()
     }
@@ -86,7 +84,7 @@ const Reader = () => {
       window.removeEventListener('pagehide', flushOnHide)
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [])
+  }, [reportProgress])
 
   const handleRelocated = useCallback(
     (cfi: string) => {

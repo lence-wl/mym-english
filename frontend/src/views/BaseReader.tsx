@@ -145,12 +145,12 @@ export default () => {
       )
     })
 
+    // 进入阅读页只恢复位置，不写回进度。
+    // 若进入即上报，PC 与手机会各自把本地位置写回后端，后打开的一端会盖掉
+    // 另一端刚读到的进度（上午手机、下午 PC、晚上手机 → 进度被反复覆盖）。
+    // 进度只在用户真正翻页/滚动（locationChanged）时才上报。
     setTimeout(async () => {
       await rendition.current?.display(location as any)
-      state.updateUserInfo({
-        currentBookLoc: location,
-      })
-      debouncedUpdateReadingStatus(location as any)
     })
   }
 
