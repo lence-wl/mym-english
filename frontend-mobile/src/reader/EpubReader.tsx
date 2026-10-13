@@ -430,15 +430,36 @@ const EpubReader = ({
       }
     }
 
+    // 恢复到指定 cfi。
+    // paginated 模式下首次 display 常只解析到「章节开头」而非精确页
+    // （实测 passed '.../24/1:963' → actual '.../2/1:0'），因为该 section 的内容
+    // 此时刚渲染，contents.range(cfi) 还取不到精确位置。需在内容就绪后再定位一次 ——
+    // 与桌面端「BaseReader 里 setTimeout 再 display(location) 一次」的做法一致。
+    const restoreLocation = (target: any): Promise<void> => {
+      const r = renditionRef.current as any
+      if (!r) return Promise.resolve()
+      const normalized = target == null ? null : String(target)
+      const attempt = (left: number): Promise<void> =>
+        r.display(normalized || undefined).then(() => {
+          const actual = r.currentLocation?.()?.start?.cfi
+          console.log('[reading-progress] display attempt', {
+            left,
+            target: normalized,
+            actual,
+          })
+          // 无目标（新书从头显示）或已精确落位即结束；否则稍等重试
+          if (!normalized || actual === normalized || left <= 0) return
+          return new Promise<void>((res) => setTimeout(res, 100)).then(() =>
+            attempt(left - 1),
+          )
+        })
+      return attempt(3)
+    }
+
     // 初始定位：恢复到上次阅读位置
-    rendition
-      .display(startLocation)
+    restoreLocation(startLocation)
       .then(() => {
         displayed = true
-        console.log('[reading-progress] after display', {
-          passed: startLocation,
-          actual: (renditionRef.current as any)?.currentLocation?.()?.start?.cfi,
-        })
         // 内核 start 完成后补一次重排（此时已落到恢复位置，relayout 会保留该位置）
         relayout()
       })
