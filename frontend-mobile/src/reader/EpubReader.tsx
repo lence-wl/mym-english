@@ -19,6 +19,12 @@ interface EpubReaderProps {
   onCenterTap: () => void
   /** 书籍解析完成，可用于生成 locations */
   onBookReady?: (book: Book, rendition: Rendition) => void
+  /**
+   * 清掉选中高亮的「信号量」：每次 +1 即触发一次淡出清空。
+   * 上层关闭查词弹层时递增此值，EpubReader 收到后给 highlight 色块
+   * 加 opacity transition 渐隐，再 setTimeout 清掉 DOM，避免硬切。
+   */
+  clearHighlightSignal?: number
 }
 
 /** 左右翻页模式下，两侧各 25% 为翻页热区（剩余 50% 留给工具栏切换，减少误触） */
@@ -51,10 +57,13 @@ const EpubReader = ({
   onLookup,
   onCenterTap,
   onBookReady,
+  clearHighlightSignal,
 }: EpubReaderProps) => {
   const holderRef = useRef<HTMLDivElement>(null)
   const bookRef = useRef<Book | null>(null)
   const renditionRef = useRef<Rendition | null>(null)
+  // 当前章节 iframe 的 document：closeSignal 触发淡出时需要拿到 layer
+  const contentsDocRef = useRef<Document | null>(null)
   // 用 ref 保存回调，避免因依赖变化重建 state
   const cbRef = useRef({ onRelocated, onLookup, onCenterTap, onBookReady })
   cbRef.current = { onRelocated, onLookup, onCenterTap, onBookReady }
@@ -64,6 +73,8 @@ const EpubReader = ({
     const win = contents.window as any
     const doc = contents.document
     if (!doc) return
+    // 暴露给上层 closeSignal 触发淡出时使用
+    contentsDocRef.current = doc
 
     // epubjs 换页是靠直接改 container.scrollLeft 实现的，默认瞬时跳变（"硬切"）。
     // 给滚动容器加平滑过渡，换页就有滑动感。容器由 manager.render 创建，内容加载时必定已存在。
@@ -430,6 +441,37 @@ const EpubReader = ({
     })
     r.themes.register('default', buildTypographyRules(lineHeight) as any)
   }, [lineHeight])
+
+  // 关闭查词弹层时把选中色块淡出再清掉：
+  // 默认 setHighlight(null) 直接 textContent='' 硬切，体验突兀；
+  // 这里给每个色块加 opacity transition，180ms 后再清 DOM。
+  useEffect(() => {
+    if (!clearHighlightSignal) return
+    const doc = contentsDocRef.current
+    if (!doc) return
+    const layer = doc.getElementById(OVERLAY_ID) as HTMLElement | null
+    if (!layer || !layer.children.length) return
+    const boxes = Array.from(layer.children) as HTMLElement[]
+    boxes.forEach((b) => {
+      b.style.transition = 'opacity 180ms ease-out'
+      // 强制 reflow 让上面的 transition 在下一帧生效
+      // eslint-disable-next-line no-unused-expressions
+      void b.offsetWidth
+      b.style.opacity = '0'
+    })
+    const t = window.setTimeout(() => {
+      const l = contentsDocRef.current?.getElementById?.(OVERLAY_ID) as
+        | HTMLElement
+        | null
+      if (!l) return
+      // 只清掉已淡出的（opacity:0）色块,保留淡出期间用户新长按画的高亮
+      const faded = Array.from(l.children).filter(
+        (b) => (b as HTMLElement).style.opacity === '0',
+      )
+      faded.forEach((b) => b.remove())
+    }, 200)
+    return () => window.clearTimeout(t)
+  }, [clearHighlightSignal])
 
   return <div ref={holderRef} className="h-full w-full" />
 }

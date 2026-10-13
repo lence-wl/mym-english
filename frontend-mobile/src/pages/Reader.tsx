@@ -24,6 +24,8 @@ const Reader = () => {
   const [openSetting, setOpenSetting] = useState(false)
   const [selectedText, setSelectedText] = useState('')
   const [percent, setPercent] = useState(0)
+  // 关闭查词弹层时递增,触发 EpubReader 把选中色块淡出清掉（而非硬切）
+  const [clearHighlightSignal, setClearHighlightSignal] = useState(0)
 
   const bookRef = useRef<any>(null)
   const locationsReadyRef = useRef(false)
@@ -162,6 +164,7 @@ const Reader = () => {
             onLookup={setSelectedText}
             onCenterTap={() => setChromeVisible((v) => !v)}
             onBookReady={handleBookReady}
+            clearHighlightSignal={clearHighlightSignal}
           />
         </div>
       )}
@@ -287,7 +290,11 @@ const Reader = () => {
       <DefinitionSheet
         text={selectedText}
         open={!!selectedText}
-        onClose={() => setSelectedText('')}
+        onClose={() => {
+          setSelectedText('')
+          // 关弹层时触发 iframe 里的高亮色块淡出再清掉,而非硬切
+          setClearHighlightSignal((v) => v + 1)
+        }}
       />
     </div>
   )
