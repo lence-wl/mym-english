@@ -100,9 +100,12 @@ export default () => {
     // 文字选择事件
     _rendition.on('selected', async (cfiRange: EpubCFI, contents: Contents) => {
       const selection = contents.document.getSelection()!
-      containerRef.current = contents.document.getElementsByClassName(
+      // 弹层挂载点：优先用书自带的 .chapter，取不到就退回 iframe 的 body。
+      // 不能只依赖 .chapter —— 部分书里没有这个 class，container 会变成
+      // undefined，导致 CommonLayer 静默返回 null（表现为划词毫无反应且不报错）
+      containerRef.current = (contents.document.getElementsByClassName(
         'chapter',
-      )[0] as any
+      )[0] || contents.document.body) as any
       const range = selection.getRangeAt(0) // 获取第一个选中范围
       const rect = range.getBoundingClientRect() // 获取选中区域的位置矩形
       setSelectRect(rect)
