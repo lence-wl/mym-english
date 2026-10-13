@@ -18,6 +18,11 @@ const PrivateRoute = () => {
     try {
       setLoading(true)
       const { data } = await me()
+      console.log('[reading-progress] me() returned', {
+        currentBookId: data.currentBookId,
+        currentBookLoc: data.currentBookLoc,
+        myBookData: data.myBookData,
+      })
       state.setUserInfo(data)
       // 在读书籍来自 myBookData（可多本同时在读）+ 已读完
       const ids = userBookIds(data)

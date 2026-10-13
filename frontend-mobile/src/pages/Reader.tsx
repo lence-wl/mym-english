@@ -39,6 +39,11 @@ const Reader = () => {
   // 拉取当前书籍文件地址
   useEffect(() => {
     const id = userInfo.currentBookId
+    console.log('[reading-progress] Reader mount', {
+      currentBookId: id,
+      currentBookLoc: userInfo.currentBookLoc,
+      myBookData: userInfo.myBookData,
+    })
     if (!id) return
     setLoadingBook(true)
     getBookDetail(id)
@@ -59,6 +64,10 @@ const Reader = () => {
     () =>
       debounce((cfi: string) => {
         const { userInfo } = useStore.getState()
+        console.log('[reading-progress] reportProgress fired', {
+          currentBookId: userInfo.currentBookId,
+          cfi,
+        })
         flushReadingStatus(userInfo.currentBookId, cfi)
       }, 150),
     [],
@@ -72,6 +81,10 @@ const Reader = () => {
   useEffect(() => {
     const flushOnHide = () => {
       const { userInfo } = useStore.getState()
+      console.log('[reading-progress] pagehide/visibilitychange(hidden)', {
+        currentBookId: userInfo.currentBookId,
+        currentBookLoc: userInfo.currentBookLoc,
+      })
       flushReadingStatus(userInfo.currentBookId, userInfo.currentBookLoc)
     }
     const onVisibility = () => {
@@ -89,6 +102,7 @@ const Reader = () => {
     (cfi: string) => {
       const { userInfo: info, updateUserInfo } = useStore.getState()
       const bookId = info.currentBookId
+      console.log('[reading-progress] relocated', { bookId, cfi })
       updateUserInfo({
         currentBookLoc: cfi,
         // 同步本会话内的「按书位置」：在书架切走再切回时，

@@ -35,7 +35,11 @@ export const updateReadingStatus = (currentBookId: any, currentBookLoc: any) =>
  * 后端按字段构造 $set,只更新 currentBookId,不会把数据库 currentBookLoc 清空。
  */
 export const flushReadingStatus = (currentBookId: any, currentBookLoc: any) => {
-  if (currentBookId == null) return
+  if (currentBookId == null) {
+    console.log('[reading-progress] flush skipped: no currentBookId')
+    return
+  }
+  console.log('[reading-progress] flush send', { currentBookId, currentBookLoc })
   const token = localStorage.getItem('token')
   // 与主 axios 实例保持一致：baseURL=/api，相对当前 origin
   const url = '/api/users/me/reading-status'
@@ -49,8 +53,17 @@ export const flushReadingStatus = (currentBookId: any, currentBookLoc: any) => {
       body: JSON.stringify({ currentBookId, currentBookLoc }),
       keepalive: true,
       credentials: 'include',
-    }).catch(() => {})
-  } catch {
-    /* 静默：页面正在卸载，失败也无法处理 */
+    })
+      .then((res) =>
+        console.log('[reading-progress] flush response', {
+          status: res.status,
+          ok: res.ok,
+        }),
+      )
+      .catch((err) =>
+        console.log('[reading-progress] flush FAILED', String(err)),
+      )
+  } catch (e) {
+    console.log('[reading-progress] flush throw', String(e))
   }
 }
