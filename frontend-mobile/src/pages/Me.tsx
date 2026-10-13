@@ -13,11 +13,28 @@ const Me = () => {
   const { userInfo, resetUserInfo, updateUserInfo } = useStore()
 
   // 进入页面时刷新用户信息：生词/句子统计会随阅读与收藏变化，避免显示旧数据
+  // 注意：只更新统计/账号相关字段，**不要整体合并 data**——
+  // me() 返回的 currentBookLoc / myBookData 是后端上次落盘的值，可能落后于 store 里的最新进度
+  // (Reader 防抖 800ms 内翻到的位置还没上报)。整体覆盖会让 store 回退到旧进度，
+  // 用户回 Reader 就会从更早的位置继续读。
   useEffect(() => {
     let alive = true
     me()
       .then(({ data }) => {
-        if (alive) updateUserInfo(data)
+        if (!alive) return
+        updateUserInfo({
+          username: data.username,
+          email: data.email,
+          role: data.role,
+          phone: data.phone,
+          avatar: data.avatar,
+          level: data.level,
+          status: data.status,
+          wordCount: data.wordCount,
+          sentenceCount: data.sentenceCount,
+          readingBook: data.readingBook,
+          completedBooks: data.completedBooks,
+        })
       })
       .catch(() => {
         /* 刷新失败时沿用现有数据，不阻塞页面 */

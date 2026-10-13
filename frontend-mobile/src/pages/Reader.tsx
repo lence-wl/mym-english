@@ -7,7 +7,7 @@ import EpubReader from '../reader/EpubReader'
 import DefinitionSheet from '../components/DefinitionSheet'
 import ThemeSwitcher from '../components/ThemeSwitcher'
 import { getBookDetail } from '../api/book'
-import { updateReadingStatus } from '../api/user'
+import { flushReadingStatus, updateReadingStatus } from '../api/user'
 import useStore from '../store'
 import { readingColorConfig } from '../theme/themeConfig'
 
@@ -57,7 +57,30 @@ const Reader = () => {
       }, 800),
     [],
   )
-  useEffect(() => () => reportProgress.cancel(), [reportProgress])
+  // 卸载时必须 flush 而不是 cancel:
+  // 用户翻页后 800ms 内点底部 Tab 离开 Reader,组件 unmount,
+  // cancel() 会把 pending 的最后一次 cfi 直接丢掉 → 后端落盘的进度停留在上一次,
+  // 下次进来发现进度回退。flush() 同步触发最后一次 pending 调用,把最新位置发出去。
+  useEffect(() => () => reportProgress.flush(), [reportProgress])
+
+  // 切后台 / 关闭 App / 刷新页面时,React 来不及跑 unmount cleanup,
+  // 这里在 document 上挂 pagehide + visibilitychange(hidden) 兜底:
+  // 直接从 store 取最新 cfi,用 fetch keepalive 把请求发完。
+  useEffect(() => {
+    const flushOnHide = () => {
+      const { userInfo } = useStore.getState()
+      flushReadingStatus(userInfo.currentBookId, userInfo.currentBookLoc)
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flushOnHide()
+    }
+    window.addEventListener('pagehide', flushOnHide)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('pagehide', flushOnHide)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [])
 
   const handleRelocated = useCallback(
     (cfi: string) => {

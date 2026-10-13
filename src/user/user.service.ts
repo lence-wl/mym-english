@@ -196,8 +196,19 @@ export class UserService {
 
     const { currentBookId, currentBookLoc } = statusDto;
 
-    // 执行更新（currentBookId / currentBookLoc 始终代表「最近在读的那本」）
-    await this.userModel.updateOne({ _id: id }, { $set: { ...statusDto } });
+    // 只写入非空字段：currentBookId 始终更新（代表「最近在读的那本」），
+    // 但 currentBookLoc 仅在调用方真的带位置时才写。
+    // 前端从书架切到一本没读过的书时会传 currentBookLoc: null，
+    // 若用 $set: { ...statusDto } 会把数据库里的 currentBookLoc 强制设为 null，
+    // 破坏「最近在读那本」的进度语义。这里改为按字段构造 $set，避免误覆盖。
+    const $set: Record<string, any> = {};
+    if (currentBookId !== undefined) $set.currentBookId = currentBookId;
+    if (currentBookLoc !== undefined && currentBookLoc !== null) {
+      $set.currentBookLoc = currentBookLoc;
+    }
+    if (Object.keys($set).length) {
+      await this.userModel.updateOne({ _id: id }, { $set });
+    }
 
     // 同时按书各存一份位置：myBookData 即「在读书单」，
     // 允许一个用户多本同时在读，也方便随时切换到别的书再换回来接着读
