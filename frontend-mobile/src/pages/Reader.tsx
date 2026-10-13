@@ -20,6 +20,8 @@ const Reader = () => {
   const [bookUrl, setBookUrl] = useState('')
   const [bookTitle, setBookTitle] = useState('')
   const [loadingBook, setLoadingBook] = useState(false)
+  // 初始阅读位置是否已恢复：恢复需等 locations 生成，期间盖一层加载态避免白屏
+  const [bookRestored, setBookRestored] = useState(false)
   const [chromeVisible, setChromeVisible] = useState(true)
   const [openSetting, setOpenSetting] = useState(false)
   const [selectedText, setSelectedText] = useState('')
@@ -46,6 +48,7 @@ const Reader = () => {
     })
     if (!id) return
     setLoadingBook(true)
+    setBookRestored(false)
     getBookDetail(id)
       .then((res) => {
         // 后端只返回文件名，需拼上 /uploads 前缀（与桌面端 BaseReader 一致）
@@ -126,10 +129,11 @@ const Reader = () => {
     [reportProgress],
   )
 
+  // 返回 locations 生成 promise：EpubReader 需要等它完成后再按百分比恢复位置
   const handleBookReady = useCallback((book: any) => {
     bookRef.current = book
     // 生成定位索引用于百分比进度（异步，不阻塞阅读）
-    book.locations.generate(1600).then(() => {
+    return book.locations.generate(1600).then(() => {
       locationsReadyRef.current = true
     })
   }, [])
@@ -160,28 +164,40 @@ const Reader = () => {
         // 正文必须避开顶部状态栏与底部 Home 指示条：已安装 PWA（black-translucent）
         // 下网页内容会伸到状态栏下方，不加内边距就会与状态栏重叠
         // 左右内边距即"页边距"：容器变窄后 epubjs 会把单页宽度一并收窄，形成左右留白
-        <div
-          className="absolute inset-0"
-          style={{
-            paddingTop: 'var(--safe-top)',
-            paddingBottom: 'var(--safe-bottom)',
-            paddingLeft: themeConfig.pageMargin,
-            paddingRight: themeConfig.pageMargin,
-          }}
-        >
-          <EpubReader
-            url={bookUrl}
-            initialLocation={userInfo.currentBookLoc}
-            fontSize={themeConfig.fontSize}
-            lineHeight={themeConfig.lineHeight}
-            themeKey={themeConfig.theme}
-            onRelocated={handleRelocated}
-            onLookup={setSelectedText}
-            onCenterTap={() => setChromeVisible((v) => !v)}
-            onBookReady={handleBookReady}
-            clearHighlightSignal={clearHighlightSignal}
-          />
-        </div>
+        <>
+          <div
+            className="absolute inset-0"
+            style={{
+              paddingTop: 'var(--safe-top)',
+              paddingBottom: 'var(--safe-bottom)',
+              paddingLeft: themeConfig.pageMargin,
+              paddingRight: themeConfig.pageMargin,
+            }}
+          >
+            <EpubReader
+              url={bookUrl}
+              initialLocation={userInfo.currentBookLoc}
+              fontSize={themeConfig.fontSize}
+              lineHeight={themeConfig.lineHeight}
+              themeKey={themeConfig.theme}
+              onRelocated={handleRelocated}
+              onLookup={setSelectedText}
+              onCenterTap={() => setChromeVisible((v) => !v)}
+              onBookReady={handleBookReady}
+              onRestored={() => setBookRestored(true)}
+              clearHighlightSignal={clearHighlightSignal}
+            />
+          </div>
+          {/* 恢复阅读位置需等 locations 生成，期间盖一层加载态，避免先显示章节开头再跳转 */}
+          {!bookRestored && (
+            <div
+              className="absolute inset-0 z-10 flex items-center justify-center"
+              style={{ background: readingColorConfig[themeConfig.theme]?.colorBgContainer }}
+            >
+              <Spin size="large" />
+            </div>
+          )}
+        </>
       )}
 
       {/* 顶部工具栏 */}

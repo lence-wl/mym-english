@@ -17,8 +17,10 @@ interface EpubReaderProps {
   onLookup: (text: string) => void
   /** 单击屏幕中间（用于切换顶栏/底栏显隐） */
   onCenterTap: () => void
-  /** 书籍解析完成，可用于生成 locations */
-  onBookReady?: (book: Book, rendition: Rendition) => void
+  /** 初始位置恢复完成（用于隐藏加载态） */
+  onRestored?: () => void
+  /** 书籍解析完成，可用于生成 locations（可返回其 promise，供恢复位置前等待） */
+  onBookReady?: (book: Book, rendition: Rendition) => void | Promise<unknown>
   /**
    * 清掉选中高亮的「信号量」：每次 +1 即触发一次淡出清空。
    * 上层关闭查词弹层时递增此值，EpubReader 收到后给 highlight 色块
@@ -56,6 +58,7 @@ const EpubReader = ({
   onRelocated,
   onLookup,
   onCenterTap,
+  onRestored,
   onBookReady,
   clearHighlightSignal,
 }: EpubReaderProps) => {
@@ -69,8 +72,8 @@ const EpubReader = ({
   // 这里留一份「应停留位置」，重排后据此定位回去。
   const desiredCfiRef = useRef<string | null>(null)
   // 用 ref 保存回调，避免因依赖变化重建 state
-  const cbRef = useRef({ onRelocated, onLookup, onCenterTap, onBookReady })
-  cbRef.current = { onRelocated, onLookup, onCenterTap, onBookReady }
+  const cbRef = useRef({ onRelocated, onLookup, onCenterTap, onRestored, onBookReady })
+  cbRef.current = { onRelocated, onLookup, onCenterTap, onRestored, onBookReady }
 
   // 内容加载时挂载触屏交互（翻页 / 长按查词 / 轻点）
   const attachContentHandlers = (contents: Contents) => {
@@ -374,23 +377,23 @@ const EpubReader = ({
       return attachContentHandlers(contents) as any
     })
 
+    // 恢复位置期间禁止把位置上报给上层。
+    // paginated 模式下 display(savedCfi) 一旦解析失败会降级到章节开头并触发
+    // relocated；若此时上报，就会把「章节开头」的假 cfi 覆盖掉后端已存的正确进度。
+    let isRestoring = true
+
     // 阅读位置变化
     rendition.on('relocated', (loc: any) => {
-      if (loc?.start?.cfi) {
-        desiredCfiRef.current = loc.start.cfi
-        cbRef.current.onRelocated(loc.start.cfi)
-      }
-    })
-
-    book.loaded.navigation.then(() => {
-      if (disposed) return
-      cbRef.current.onBookReady?.(book, rendition)
+      if (!loc?.start?.cfi) return
+      desiredCfiRef.current = loc.start.cfi
+      if (isRestoring) return
+      cbRef.current.onRelocated(loc.start.cfi)
     })
 
     const startLocation =
-      initialLocation && String(initialLocation).length ? (initialLocation as any) : undefined
+      initialLocation && String(initialLocation).length ? String(initialLocation) : null
     // 记下「应停留位置」，供重排后定位回去
-    desiredCfiRef.current = startLocation ? String(startLocation) : null
+    desiredCfiRef.current = startLocation
 
     // 是否已完成初始定位：在 display() 完成前绝不触发 relayout ——
     // paginated 模式下 resize 会重新分页并把视图重置到章节开头，
@@ -430,41 +433,56 @@ const EpubReader = ({
       }
     }
 
-    // 恢复到指定 cfi。
-    // paginated 模式下首次 display 常只解析到「章节开头」而非精确页
-    // （实测 passed '.../24/1:963' → actual '.../2/1:0'），因为该 section 的内容
-    // 此时刚渲染，contents.range(cfi) 还取不到精确位置。需在内容就绪后再定位一次 ——
-    // 与桌面端「BaseReader 里 setTimeout 再 display(location) 一次」的做法一致。
-    const restoreLocation = (target: any): Promise<void> => {
+    // 初始定位：恢复到上次阅读位置。
+    // 不能直接 display(savedCfi)：paginated 模式下 manager 用
+    // contents.locationOf(cfi) → EpubCFI.toRange(document) 计算页内偏移，
+    // 一旦该 cfi 在当前 DOM 里解析不出 range，就退化成 {left:0,top:0}，
+    // 视图必然停在页 0（章节开头）。实测连续重试多次仍固定落在章节开头。
+    // 改用 locations 中转 —— 其中的 cfi 由本书 DOM 生成，取回后必然可解析：
+    //   percentageFromCfi(cfi) 只做 CFI 数值比较（不碰 DOM），
+    //   display(percentage) 内部再走 cfiFromPercentage 拿回可解析的 cfi。
+    const restoreLocation = (): Promise<void> => {
       const r = renditionRef.current as any
       if (!r) return Promise.resolve()
-      const normalized = target == null ? null : String(target)
-      const attempt = (left: number): Promise<void> =>
-        r.display(normalized || undefined).then(() => {
-          const actual = r.currentLocation?.()?.start?.cfi
-          console.log('[reading-progress] display attempt', {
-            left,
-            target: normalized,
-            actual,
-          })
-          // 无目标（新书从头显示）或已精确落位即结束；否则稍等重试
-          if (!normalized || actual === normalized || left <= 0) return
-          return new Promise<void>((res) => setTimeout(res, 100)).then(() =>
-            attempt(left - 1),
-          )
+      const locations = (book as any).locations
+      if (startLocation && locations?.total) {
+        const pct = locations.percentageFromCfi(startLocation)
+        console.log('[reading-progress] restore', {
+          cfi: startLocation,
+          total: locations.total,
+          pct,
         })
-      return attempt(3)
+        if (typeof pct === 'number' && pct > 0) {
+          return Promise.resolve(r.display(pct) as any)
+        }
+      }
+      // 新书从头 / 算不出百分比时退回直接按 cfi（或空目标）定位
+      return Promise.resolve(r.display(startLocation || undefined) as any)
     }
 
-    // 初始定位：恢复到上次阅读位置
-    restoreLocation(startLocation)
+    // 等 locations 生成完（percentageFromCfi 依赖它）再恢复；
+    // onBookReady 负责触发 locations.generate，这里串起它的 promise。
+    book.loaded.navigation
       .then(() => {
+        if (disposed) return
+        return cbRef.current.onBookReady?.(book, rendition)
+      })
+      .then(() => {
+        if (disposed) return
+        return restoreLocation()
+      })
+      .then(() => {
+        if (disposed) return
         displayed = true
+        isRestoring = false
+        cbRef.current.onRestored?.()
         // 内核 start 完成后补一次重排（此时已落到恢复位置，relayout 会保留该位置）
         relayout()
       })
       .catch(() => {
         displayed = true
+        isRestoring = false
+        cbRef.current.onRestored?.()
       })
 
     window.addEventListener('resize', relayout)
