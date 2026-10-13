@@ -7,7 +7,7 @@ import EpubReader from '../reader/EpubReader'
 import DefinitionSheet from '../components/DefinitionSheet'
 import ThemeSwitcher from '../components/ThemeSwitcher'
 import { getBookDetail } from '../api/book'
-import { flushReadingStatus, updateReadingStatus } from '../api/user'
+import { flushReadingStatus } from '../api/user'
 import useStore from '../store'
 import { readingColorConfig } from '../theme/themeConfig'
 
@@ -50,19 +50,20 @@ const Reader = () => {
       .finally(() => setLoadingBook(false))
   }, [userInfo.currentBookId])
 
-  // 防抖上报阅读进度
+  // 上报阅读进度：用极短防抖(150ms)合并连续翻页,内部走 fetch keepalive。
+  // 之前用 axios + 800ms 防抖,在 iOS PWA 下有两个失效路径:
+  //   1) 800ms 内滑掉 App,axios XHR 会被中止,pagehide 又不一定触发;
+  //   2) 即使 pagehide 触发,axios 也不带 keepalive,请求会被浏览器中止。
+  // 改用 fetch keepalive 后,请求一旦发出,即使页面立刻被销毁浏览器也会发完。
   const reportProgress = useMemo(
     () =>
       debounce((cfi: string) => {
-        const id = useStore.getState().userInfo.currentBookId
-        if (id) updateReadingStatus(id, cfi).catch(() => {})
-      }, 800),
+        const { userInfo } = useStore.getState()
+        flushReadingStatus(userInfo.currentBookId, cfi)
+      }, 150),
     [],
   )
-  // 卸载时必须 flush 而不是 cancel:
-  // 用户翻页后 800ms 内点底部 Tab 离开 Reader,组件 unmount,
-  // cancel() 会把 pending 的最后一次 cfi 直接丢掉 → 后端落盘的进度停留在上一次,
-  // 下次进来发现进度回退。flush() 同步触发最后一次 pending 调用,把最新位置发出去。
+  // 卸载时 flush:用户翻页后 150ms 内切走 Tab,组件 unmount 立即触发最后一次上报
   useEffect(() => () => reportProgress.flush(), [reportProgress])
 
   // 切后台 / 关闭 App / 刷新页面时,React 来不及跑 unmount cleanup,

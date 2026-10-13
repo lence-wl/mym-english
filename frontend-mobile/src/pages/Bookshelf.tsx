@@ -4,7 +4,7 @@ import { Empty, Modal, Segmented, Spin, notification } from 'antd'
 import { RiAddLine, RiDeleteBinLine } from '@remixicon/react'
 import PageShell from '../components/PageShell'
 import { getBookList, deleteBook, updateBookVisibility } from '../api/book'
-import { updateReadingStatus } from '../api/user'
+import { flushReadingStatus } from '../api/user'
 import useStore from '../store'
 
 interface BookItem {
@@ -77,7 +77,9 @@ const Bookshelf = () => {
       )
       const loc = saved?.location || null
       state.updateUserInfo({ currentBookId: book.id, currentBookLoc: loc })
-      updateReadingStatus(book.id, loc).catch(() => {})
+      // 用 fetch keepalive 上报：navigate('/reader') 会立即 unmount 当前组件,
+      // axios XHR 可能被中止；keepalive 请求一旦发出浏览器会发完
+      flushReadingStatus(book.id, loc)
     }
     navigate('/reader')
   }
