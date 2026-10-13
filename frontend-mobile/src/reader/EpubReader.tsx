@@ -400,16 +400,16 @@ const EpubReader = ({
     // 抢在恢复之前就会导致「回到章节开头而非具体页」。
     let displayed = false
 
-    // 横竖屏 / 尺寸变化后重新排版
+    // 横竖屏 / 尺寸变化后重新排版（返回 promise，便于恢复阶段等它稳定后再解禁上报）
     let lastW = 0
     let lastH = 0
-    const relayout = () => {
+    const relayout = async (): Promise<void> => {
       // 初始 display 尚未完成时不重排，避免把刚恢复的位置重置到章节开头
       if (!displayed) return
       const node = holderRef.current
-      const r = renditionRef.current
+      const r = renditionRef.current as any
       // 渲染内核未就绪时 manager 尚未创建，此时 resize 会抛错，需跳过
-      if (!node || !r || typeof (r as any).manager?.resize !== 'function') return
+      if (!node || !r || typeof r.manager?.resize !== 'function') return
       const w = node.clientWidth
       const h = node.clientHeight
       // 尺寸没变就不重排：多余重排会重新分页并丢位置
@@ -421,16 +421,46 @@ const EpubReader = ({
         (r as any).currentLocation?.()?.start?.cfi || desiredCfiRef.current
       console.log('[reading-progress] relayout', { w, h, keep })
       r.resize(w, h)
-      if (keep) {
-        window.setTimeout(() => {
-          if (disposed) return
-          try {
-            ;(renditionRef.current as any)?.display?.(keep)
-          } catch {
-            /* 忽略定位失败 */
-          }
-        }, 250)
+      if (!keep) return
+      await new Promise<void>((res) => window.setTimeout(res, 250))
+      if (disposed) return
+      try {
+        await r.display?.(keep)
+      } catch {
+        /* 忽略定位失败 */
       }
+    }
+
+    // 诊断：确认 section 内 cfi 能否被 locationOf/toRange 解析。
+    // locationOf 返回 {left:0,top:0} 即代表 toRange 失败（定位只能落到章节开头）。
+    const diagRestore = () => {
+      const r: any = renditionRef.current
+      if (!r) return
+      const locs: any = (book as any).locations
+      const idx = startLocation ? locs?.locationFromCfi?.(startLocation) : null
+      const locCfi =
+        idx != null && idx >= 0 ? String(locs?.cfiFromLocation?.(idx)) : null
+      const arr = r.getContents?.() || []
+      const c: any = Array.isArray(arr) ? arr[0] : arr
+      let locOfTarget: any = 'no-contents'
+      let locOfCurrent: any = null
+      try {
+        if (c?.locationOf) {
+          locOfTarget = startLocation ? c.locationOf(startLocation) : null
+          const cur = r.currentLocation?.()?.start?.cfi
+          locOfCurrent = cur ? c.locationOf(cur) : null
+        }
+      } catch (e) {
+        locOfTarget = 'threw:' + String(e)
+      }
+      console.log('[reading-progress] diag', {
+        total: locs?.total,
+        idx,
+        locCfi,
+        startLocation,
+        locOfTarget,
+        locOfCurrent,
+      })
     }
 
     // 初始定位：恢复到上次阅读位置。
@@ -471,13 +501,16 @@ const EpubReader = ({
         if (disposed) return
         return restoreLocation()
       })
-      .then(() => {
+      .then(async () => {
         if (disposed) return
         displayed = true
+        diagRestore()
+        // 先完成重排并回到恢复位置，等视图稳定后再解禁上报 ——
+        // 否则重排后的 display 会上报，把错误 cfi 覆盖回后端
+        await relayout()
+        if (disposed) return
         isRestoring = false
         cbRef.current.onRestored?.()
-        // 内核 start 完成后补一次重排（此时已落到恢复位置，relayout 会保留该位置）
-        relayout()
       })
       .catch(() => {
         displayed = true
