@@ -71,6 +71,9 @@ const EpubReader = ({
   // paginated 模式下重排（resize）会重新分页，可能把视图重置到章节开头，
   // 这里留一份「应停留位置」，重排后据此定位回去。
   const desiredCfiRef = useRef<string | null>(null)
+  // 恢复定位期间挂起「平滑滚动」：滚动动画会让 epubjs 读到中间态的 scrollLeft，
+  // 程序化落页必须瞬时生效；恢复完成后再放开平滑翻页手感。
+  const suspendSmoothRef = useRef(false)
   // 用 ref 保存回调，避免因依赖变化重建 state
   const cbRef = useRef({ onRelocated, onLookup, onCenterTap, onRestored, onBookReady })
   cbRef.current = { onRelocated, onLookup, onCenterTap, onRestored, onBookReady }
@@ -88,7 +91,9 @@ const EpubReader = ({
     const container = (renditionRef.current as any)?.manager?.container as
       | HTMLElement
       | undefined
-    if (container) container.style.scrollBehavior = 'smooth'
+    if (container) {
+      container.style.scrollBehavior = suspendSmoothRef.current ? 'auto' : 'smooth'
+    }
 
     let startX = 0
     let startY = 0
@@ -363,6 +368,27 @@ const EpubReader = ({
     })
     renditionRef.current = rendition
 
+    // 诊断（临时）：包一层 manager.moveTo，记录落页计算的关键输入。
+    // 若这里 scrollWidth 只等于 delta（一页宽），说明夹取退化，落点必为第 0 页。
+    const mgr: any = (rendition as any).manager
+    if (mgr && typeof mgr.moveTo === 'function' && !mgr.__loggedMoveTo) {
+      mgr.__loggedMoveTo = true
+      const origMoveTo = mgr.moveTo.bind(mgr)
+      mgr.moveTo = (offset: any, width: any) => {
+        console.log('[reading-progress] moveTo', {
+          offsetLeft: offset?.left,
+          width,
+          delta: mgr.layout?.delta,
+          scrollWidth: mgr.container?.scrollWidth,
+          scrollLeftBefore: mgr.container?.scrollLeft,
+        })
+        origMoveTo(offset, width)
+        console.log('[reading-progress] moveTo done', {
+          scrollLeftAfter: mgr.container?.scrollLeft,
+        })
+      }
+    }
+
     // 注册配色主题
     Object.entries(epubThemes).forEach(([tag, styles]) => {
       rendition.themes.register(tag, styles as any)
@@ -385,20 +411,47 @@ const EpubReader = ({
     // 阅读位置变化
     rendition.on('relocated', (loc: any) => {
       if (!loc?.start?.cfi) return
-      desiredCfiRef.current = loc.start.cfi
+      // 恢复期间的 relocated 是「假位置」（display 降级到章节开头）：
+      // 既不上报，也不能写进 desiredCfiRef，否则重排会跟着跳到章节开头。
       if (isRestoring) return
+      desiredCfiRef.current = loc.start.cfi
       cbRef.current.onRelocated(loc.start.cfi)
     })
 
     const startLocation =
       initialLocation && String(initialLocation).length ? String(initialLocation) : null
-    // 记下「应停留位置」，供重排后定位回去
+    // 记下「应停留位置」，供恢复/重排后定位回去
     desiredCfiRef.current = startLocation
+    // 恢复期间禁用平滑滚动，落页瞬时生效
+    suspendSmoothRef.current = true
 
     // 是否已完成初始定位：在 display() 完成前绝不触发 relayout ——
     // paginated 模式下 resize 会重新分页并把视图重置到章节开头，
     // 抢在恢复之前就会导致「回到章节开头而非具体页」。
     let displayed = false
+
+    // 落页：先 display 一次把 section 渲染出来，等这一帧布局稳定后再 display 一次同一 cfi。
+    // 原因：paginated 首次 display(section) 时 iframe 的多列布局尚未完成，
+    // manager.moveTo 里 `distX + delta > container.scrollWidth` 的夹取会退化到 distX=0，
+    // 落点变成第 0 页（章节开头）。第二次 display 时 section 已可见，epubjs 走
+    // 「视图已存在」分支，只重算 moveTo、不再 clear/重建，此时 scrollWidth 已就绪，落页精确。
+    const applyLocation = async (target: string | null): Promise<void> => {
+      const r = renditionRef.current as any
+      if (!r || !target) return
+      try {
+        await r.display(target)
+      } catch {
+        /* 忽略首次定位失败 */
+      }
+      // 等下一帧，让 iframe 列宽 / scrollWidth 就绪
+      await new Promise<void>((res) => window.requestAnimationFrame(() => res()))
+      if (disposed) return
+      try {
+        await r.display(target)
+      } catch {
+        /* 忽略二次定位失败 */
+      }
+    }
 
     // 横竖屏 / 尺寸变化后重新排版（返回 promise，便于恢复阶段等它稳定后再解禁上报）
     let lastW = 0
@@ -416,19 +469,15 @@ const EpubReader = ({
       if (w === lastW && h === lastH) return
       lastW = w
       lastH = h
-      // 重排前记住当前位置，重排后定位回去，避免跳回章节开头
-      const keep =
-        (r as any).currentLocation?.()?.start?.cfi || desiredCfiRef.current
+      // 重排后定位回「应停留位置」。绝不能取 currentLocation —— 恢复失败时它是
+      // 章节开头的假 cfi，被当成 keep 重新 display 会把错误位置固化下来。
+      const keep = desiredCfiRef.current
       console.log('[reading-progress] relayout', { w, h, keep })
       r.resize(w, h)
       if (!keep) return
       await new Promise<void>((res) => window.setTimeout(res, 250))
       if (disposed) return
-      try {
-        await r.display?.(keep)
-      } catch {
-        /* 忽略定位失败 */
-      }
+      await applyLocation(keep)
     }
 
     // 诊断：确认 section 内 cfi 能否被 locationOf/toRange 解析。
@@ -463,34 +512,16 @@ const EpubReader = ({
         // 单页宽度 delta：若 locOfTarget.left < delta，说明目标本就在第 0 页
         // （视口过宽时整章可能只有一页），此时落点并非 bug
         delta: r.manager?.layout?.delta,
+        scrollWidth: r.manager?.container?.scrollWidth,
+        scrollLeft: r.manager?.container?.scrollLeft,
       })
     }
 
     // 初始定位：恢复到上次阅读位置。
-    // 不能直接 display(savedCfi)：paginated 模式下 manager 用
-    // contents.locationOf(cfi) → EpubCFI.toRange(document) 计算页内偏移，
-    // 一旦该 cfi 在当前 DOM 里解析不出 range，就退化成 {left:0,top:0}，
-    // 视图必然停在页 0（章节开头）。实测连续重试多次仍固定落在章节开头。
-    // 改用 locations 中转 —— 其中的 cfi 由本书 DOM 生成，取回后必然可解析：
-    //   percentageFromCfi(cfi) 只做 CFI 数值比较（不碰 DOM），
-    //   display(percentage) 内部再走 cfiFromPercentage 拿回可解析的 cfi。
+    // 与桌面端同一手法 —— 把存下来的 cfi 直接交给 display()，不做百分比中转。
     const restoreLocation = (): Promise<void> => {
-      const r = renditionRef.current as any
-      if (!r) return Promise.resolve()
-      const locations = (book as any).locations
-      if (startLocation && locations?.total) {
-        const pct = locations.percentageFromCfi(startLocation)
-        console.log('[reading-progress] restore', {
-          cfi: startLocation,
-          total: locations.total,
-          pct,
-        })
-        if (typeof pct === 'number' && pct > 0) {
-          return Promise.resolve(r.display(pct) as any)
-        }
-      }
-      // 新书从头 / 算不出百分比时退回直接按 cfi（或空目标）定位
-      return Promise.resolve(r.display(startLocation || undefined) as any)
+      console.log('[reading-progress] restore', { cfi: startLocation })
+      return applyLocation(startLocation)
     }
 
     // 等 locations 生成完（percentageFromCfi 依赖它）再恢复；
@@ -513,11 +544,20 @@ const EpubReader = ({
         await relayout()
         if (disposed) return
         isRestoring = false
+        // 恢复完成：放开平滑翻页手感
+        suspendSmoothRef.current = false
+        const c = (renditionRef.current as any)?.manager?.container as
+          | HTMLElement
+          | undefined
+        if (c) c.style.scrollBehavior = 'smooth'
+        // 恢复期间 relocated 被屏蔽，这里把 desiredCfiRef 归位到目标位置
+        desiredCfiRef.current = startLocation ?? desiredCfiRef.current
         cbRef.current.onRestored?.()
       })
       .catch(() => {
         displayed = true
         isRestoring = false
+        suspendSmoothRef.current = false
         cbRef.current.onRestored?.()
       })
 
