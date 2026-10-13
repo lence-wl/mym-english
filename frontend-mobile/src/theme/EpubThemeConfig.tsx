@@ -44,7 +44,25 @@ export const epubThemes: Record<string, any> = Object.keys(themes).reduce(
  * 而行高与配色无关、对所有主题通用，挂在这里即可自动随章节加载生效。
  */
 export const buildTypographyRules = (lineHeight: number) => ({
-  body: { 'line-height': `${lineHeight} !important` },
-  // 只声明 body 不够：正文段落若自带 line-height，继承会被打断
-  'body *': { 'line-height': `${lineHeight} !important` },
+  body: {
+    'line-height': `${lineHeight} !important`,
+    // 两端对齐 + 自动断词：长单词按音节断行，避免整词换行导致行尾留一大段空白。
+    // 断词依赖文档语言（见 EpubReader 给正文补 lang="en"），否则 hyphens:auto 不生效。
+    'text-align': 'justify',
+    hyphens: 'auto !important',
+    '-webkit-hyphens': 'auto !important',
+    // 超长单词（URL、无空格长串）允许强制断行，避免撑破分栏
+    'overflow-wrap': 'break-word',
+  },
+  // 段落类文本两端对齐。这里不加 !important：让书籍自身更高优先级的
+  // `text-align:center`（居中书名 / 章节名）胜出，避免被压成左对齐。
+  'p, li, dd, blockquote': {
+    'text-align': 'justify',
+  },
+  // 只声明 body 不够：正文段落若自带 line-height/断词，继承会被打断
+  'body *': {
+    'line-height': `${lineHeight} !important`,
+    hyphens: 'auto !important',
+    '-webkit-hyphens': 'auto !important',
+  },
 })

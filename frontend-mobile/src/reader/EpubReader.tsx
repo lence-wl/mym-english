@@ -86,6 +86,12 @@ const EpubReader = ({
     // 暴露给上层 closeSignal 触发淡出时使用
     contentsDocRef.current = doc
 
+    // 自动断词依赖文档语言：书籍未声明 lang 时补 en，否则 hyphens:auto 拿不到
+    // 断词词典、完全不生效。已有 lang 的书不动，尊重其原始声明。
+    if (doc.documentElement && !doc.documentElement.getAttribute('lang')) {
+      doc.documentElement.setAttribute('lang', 'en')
+    }
+
     // epubjs 换页是靠直接改 container.scrollLeft 实现的，默认瞬时跳变（"硬切"）。
     // 给滚动容器加平滑过渡，换页就有滑动感。容器由 manager.render 创建，内容加载时必定已存在。
     const container = (renditionRef.current as any)?.manager?.container as
