@@ -7,7 +7,7 @@ import EpubReader from '../reader/EpubReader'
 import DefinitionSheet from '../components/DefinitionSheet'
 import ThemeSwitcher from '../components/ThemeSwitcher'
 import { getBookDetail } from '../api/book'
-import { flushReadingStatus } from '../api/user'
+import { me, flushReadingStatus } from '../api/user'
 import useStore from '../store'
 import { readingColorConfig } from '../theme/themeConfig'
 
@@ -38,14 +38,31 @@ const Reader = () => {
   const chromeBg = readingColor?.colorBgContainer || '#fff'
   const hairline = `1px solid color-mix(in srgb, ${colorText} 15%, transparent)`
 
-  // 拉取当前书籍文件地址
+  // 拉取当前书籍文件地址；进入阅读页同时用服务端最新进度纠正本地位置
   useEffect(() => {
     const id = userInfo.currentBookId
     if (!id) return
     setLoadingBook(true)
     setBookRestored(false)
-    getBookDetail(id)
-      .then((res) => {
+    // App 从后台恢复（未重新加载）时 store 可能还是本机旧位置，直接用它恢复
+    // 会显示成旧进度。这里按「当前这本书」从服务端 myBookData 取最新位置
+    // （多本书各存一份），取不到再退回服务端 currentBookLoc。
+    const refreshLoc = me()
+      .then(({ data }) => {
+        const saved = (data?.myBookData || []).find(
+          (b: any) => String(b.id) === String(id),
+        )
+        const freshLoc =
+          saved?.location ||
+          (String(data?.currentBookId) === String(id) ? data?.currentBookLoc : null) ||
+          null
+        useStore.getState().updateUserInfo({ currentBookLoc: freshLoc })
+      })
+      .catch(() => {
+        /* 拉最新失败就沿用本地值，不阻塞阅读 */
+      })
+    Promise.all([getBookDetail(id), refreshLoc])
+      .then(([res]) => {
         // 后端只返回文件名，需拼上 /uploads 前缀（与桌面端 BaseReader 一致）
         setBookUrl(res.data.filePath ? `/uploads/${res.data.filePath}` : '')
         setBookTitle(res.data.title || '')

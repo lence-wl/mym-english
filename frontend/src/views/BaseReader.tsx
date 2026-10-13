@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { ReactReader } from '../components/ReactReader'
 import type { Rendition, EpubCFI, Contents } from 'epubjs'
 import useStore from '../store'
-import { updateReadingStatus } from '../api/user'
+import { updateReadingStatus, me } from '../api/user'
 import { debounce } from 'lodash'
 import { getBookDetail } from '../api/book'
 import { Radio, Button, Drawer, notification, Slider, Typography } from 'antd'
@@ -183,10 +183,31 @@ export default () => {
 
   // 获取电子书详情数据
   const getBookData = async () => {
-    if (state.userInfo.currentBookId) {
-      const bookData = await getBookDetail(state.userInfo.currentBookId)
-      setBookUrl(bookData.data.filePath)
-    }
+    const id = state.userInfo.currentBookId
+    if (!id) return
+    // 进入阅读页先用服务端最新进度纠正本地位置：本机 store 可能是上次会话
+    // 残留的旧位置，直接用它恢复会显示成旧进度。按「当前这本书」从
+    // myBookData 取（多本书各存一份），取不到再退回服务端 currentBookLoc。
+    await me()
+      .then(({ data }) => {
+        const saved = (data?.myBookData || []).find(
+          (b: any) => String(b.id) === String(id),
+        )
+        const freshLoc =
+          saved?.location ||
+          (String(data?.currentBookId) === String(id)
+            ? data?.currentBookLoc
+            : null) ||
+          null
+        state.updateUserInfo({ currentBookLoc: freshLoc })
+        // 同步给 ReactReader 的 location，保证 display() 用的是最新位置
+        setLoaction(freshLoc || 0)
+      })
+      .catch(() => {
+        /* 拉最新失败就沿用本地值，不阻塞阅读 */
+      })
+    const bookData = await getBookDetail(id)
+    setBookUrl(bookData.data.filePath)
   }
 
   useEffect(() => {

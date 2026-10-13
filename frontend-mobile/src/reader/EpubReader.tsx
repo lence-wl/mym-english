@@ -422,7 +422,16 @@ const EpubReader = ({
     // 「视图已存在」分支，只重算 moveTo、不再 clear/重建，此时 scrollWidth 已就绪，落页精确。
     const applyLocation = async (target: string | null): Promise<void> => {
       const r = renditionRef.current as any
-      if (!r || !target) return
+      if (!r) return
+      // 没有历史位置（新书 / 尚未读过）时直接从头显示，无需二次落页
+      if (!target) {
+        try {
+          await r.display()
+        } catch {
+          /* 忽略首次显示失败 */
+        }
+        return
+      }
       try {
         await r.display(target)
       } catch {
@@ -492,8 +501,12 @@ const EpubReader = ({
           | HTMLElement
           | undefined
         if (c) c.style.scrollBehavior = 'smooth'
-        // 恢复期间 relocated 被屏蔽，这里把 desiredCfiRef 归位到目标位置
-        desiredCfiRef.current = startLocation ?? desiredCfiRef.current
+        // 恢复期间 relocated 被屏蔽，这里把 desiredCfiRef 归位到目标位置；
+        // 无历史位置（新书）时退回当前实际显示位置，避免重排后无法定位。
+        desiredCfiRef.current =
+          startLocation ||
+          (renditionRef.current as any)?.currentLocation?.()?.start?.cfi ||
+          null
         cbRef.current.onRestored?.()
       })
       .catch(() => {
