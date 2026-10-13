@@ -195,11 +195,6 @@ export class UserService {
     await this.findOne(id);
 
     const { currentBookId, currentBookLoc } = statusDto;
-    console.log('[reading-progress] backend recv', {
-      id,
-      currentBookId,
-      currentBookLoc,
-    });
 
     // 只写入非空字段：currentBookId 始终更新（代表「最近在读的那本」），
     // 但 currentBookLoc 仅在调用方真的带位置时才写。
@@ -212,12 +207,7 @@ export class UserService {
       $set.currentBookLoc = currentBookLoc;
     }
     if (Object.keys($set).length) {
-      const r = await this.userModel.updateOne({ _id: id }, { $set });
-      console.log('[reading-progress] backend $set result', {
-        matchedCount: r.matchedCount,
-        modifiedCount: r.modifiedCount,
-        $set,
-      });
+      await this.userModel.updateOne({ _id: id }, { $set });
     }
 
     // 同时按书各存一份位置：myBookData 即「在读书单」，
@@ -230,43 +220,22 @@ export class UserService {
           { _id: id, 'myBookData.id': bookId },
           { $set: { 'myBookData.$.location': currentBookLoc } },
         );
-        console.log('[reading-progress] backend myBookData update', {
-          bookId,
-          matchedCount: updated.matchedCount,
-          modifiedCount: updated.modifiedCount,
-        });
         if (updated.matchedCount === 0) {
-          const pushed = await this.userModel.updateOne(
+          await this.userModel.updateOne(
             { _id: id },
             { $push: { myBookData: { id: bookId, location: currentBookLoc } } },
           );
-          console.log('[reading-progress] backend myBookData push', {
-            bookId,
-            matchedCount: pushed.matchedCount,
-            modifiedCount: pushed.modifiedCount,
-          });
         }
       } else {
         // 没带位置（刚打开还没翻页）：只登记「在读」，不覆盖已保存的位置
-        const pushed = await this.userModel.updateOne(
+        await this.userModel.updateOne(
           { _id: id, 'myBookData.id': { $ne: bookId } },
           { $push: { myBookData: { id: bookId, location: '' } } },
         );
-        console.log('[reading-progress] backend myBookData push (no loc)', {
-          bookId,
-          matchedCount: pushed.matchedCount,
-          modifiedCount: pushed.modifiedCount,
-        });
       }
     }
 
     // 返回更新后的用户信息
-    const after = await this.findOne(id);
-    console.log('[reading-progress] backend after update', {
-      currentBookId: after.currentBookId,
-      currentBookLoc: after.currentBookLoc,
-      myBookData: after.myBookData,
-    });
-    return after;
+    return this.findOne(id);
   }
 }

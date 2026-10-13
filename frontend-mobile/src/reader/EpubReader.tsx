@@ -451,7 +451,6 @@ const EpubReader = ({
       // 重排后定位回「应停留位置」。绝不能取 currentLocation —— 恢复失败时它是
       // 章节开头的假 cfi，被当成 keep 重新 display 会把错误位置固化下来。
       const keep = desiredCfiRef.current
-      console.log('[reading-progress] relayout', { w, h, keep })
       r.resize(w, h)
       if (!keep) return
       await new Promise<void>((res) => window.setTimeout(res, 250))
@@ -461,10 +460,7 @@ const EpubReader = ({
 
     // 初始定位：恢复到上次阅读位置。
     // 与桌面端同一手法 —— 把存下来的 cfi 直接交给 display()，不做百分比中转。
-    const restoreLocation = (): Promise<void> => {
-      console.log('[reading-progress] restore', { cfi: startLocation })
-      return applyLocation(startLocation)
-    }
+    const restoreLocation = (): Promise<void> => applyLocation(startLocation)
 
     // 等书籍就绪（onBookReady 负责触发 locations.generate）后再恢复位置
     book.loaded.navigation
