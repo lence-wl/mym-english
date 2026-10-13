@@ -26,6 +26,8 @@ export interface State {
     fontSize: number
     opacity: number
     readerWidth: string
+    /** 阅读页取词/取句（翻译弹层）开关，关闭后划词不再弹翻译 */
+    lookupEnabled: boolean
   }
   setUserInfo: (userInfo: any) => void
   updateUserInfo: (userInfo: any) => void
@@ -51,6 +53,8 @@ const useStore = create<State>()((set, get) => ({
     fontSize: Number(localStorage.getItem('fontSize') || 16),
     readerWidth: localStorage.getItem('readerWidth') || '100%',
     opacity: Number(localStorage.getItem('opacity') || 100),
+    // 缺省为开：仅在显式存过 'false' 时才关闭
+    lookupEnabled: localStorage.getItem('lookupEnabled') !== 'false',
   },
   setUserInfo: (userInfo: any) => {
     set({ userInfo: { ...userInfo, books: [] } })

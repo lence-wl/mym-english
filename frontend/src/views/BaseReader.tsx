@@ -5,7 +5,7 @@ import useStore from '../store'
 import { updateReadingStatus, me } from '../api/user'
 import { debounce } from 'lodash'
 import { getBookDetail } from '../api/book'
-import { Radio, Button, Drawer, notification, Slider, Typography } from 'antd'
+import { Radio, Button, Drawer, notification, Slider, Typography, Switch } from 'antd'
 import CommonLayer from '../components/CommmonLayer'
 import { epubThemes } from '../theme/EpubThemeConfig'
 import ThemeSwitcher from '../components/ThemeSwitcher'
@@ -44,6 +44,21 @@ export default () => {
   const [selectRect, setSelectRect] = useState<DOMRect>()
   const containerRef = useRef<HTMLElement>(null)
   const [mouseUpState, setMouseUpState] = useState<boolean>(true) // 重命名避免变量冲突
+
+  // 取词/取句开关：关闭后划词只做选中，不再弹翻译层。
+  // getRendition 只注册一次事件，回调里要读最新值，故用 ref 同步。
+  const lookupEnabled = state.themeConfig.lookupEnabled ?? true
+  const lookupEnabledRef = useRef(lookupEnabled)
+  lookupEnabledRef.current = lookupEnabled
+
+  const handleLookupToggle = (enabled: boolean) => {
+    state.updateThemeConfig({ ...state.themeConfig, lookupEnabled: enabled })
+    // 关闭时清掉已选中的内容，避免开关再次打开时旧选区又弹出翻译层
+    if (!enabled) {
+      setSelectedText('')
+      setMouseUpState(true)
+    }
+  }
 
   // 防抖处理字体大小变更，延迟300ms
   const debouncedSetFontSize = debounce((size: number) => {
@@ -99,6 +114,8 @@ export default () => {
 
     // 文字选择事件
     _rendition.on('selected', async (cfiRange: EpubCFI, contents: Contents) => {
+      // 取词/取句开关关闭时，划词不弹翻译层
+      if (!lookupEnabledRef.current) return
       const selection = contents.document.getSelection()!
       // 弹层挂载点：优先用书自带的 .chapter，取不到就退回 iframe 的 body。
       // 不能只依赖 .chapter —— 部分书里没有这个 class，container 会变成
@@ -117,6 +134,7 @@ export default () => {
       }
     })
     _rendition.on('mousedown', (event: any) => {
+      if (!lookupEnabledRef.current) return
       const tagName = event.target.tagName
       if (!['svg', 'path'].includes(tagName)) {
         setSelectedText('')
@@ -124,6 +142,7 @@ export default () => {
       }
     })
     _rendition.on('mouseup', async () => {
+      if (!lookupEnabledRef.current) return
       if (selectedText.length <= 1000) {
         setMouseUpState(true)
         setOpenDrawer(true)
@@ -233,7 +252,7 @@ export default () => {
   return bookUrl ? (
     <>
       <Drawer
-        height={90}
+        height={130}
         styles={{
           mask: {
             opacity: 0,
@@ -298,6 +317,17 @@ export default () => {
                   {fontSize}px
                 </Typography.Text>
               </div>
+            </div>
+            {/* 取词/取句：关闭后划词只做选中，不弹翻译层 */}
+            <div className="flex items-center mt-2">
+              <Typography.Text className="mr-2 text-sm">
+                取词/取句:
+              </Typography.Text>
+              <Switch
+                size="small"
+                checked={lookupEnabled}
+                onChange={handleLookupToggle}
+              />
             </div>
             {/* 阅读进度 */}
             <div className="px-[20px] w-[100%]">
