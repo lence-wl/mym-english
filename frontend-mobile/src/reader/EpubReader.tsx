@@ -368,27 +368,6 @@ const EpubReader = ({
     })
     renditionRef.current = rendition
 
-    // 诊断（临时）：包一层 manager.moveTo，记录落页计算的关键输入。
-    // 若这里 scrollWidth 只等于 delta（一页宽），说明夹取退化，落点必为第 0 页。
-    const mgr: any = (rendition as any).manager
-    if (mgr && typeof mgr.moveTo === 'function' && !mgr.__loggedMoveTo) {
-      mgr.__loggedMoveTo = true
-      const origMoveTo = mgr.moveTo.bind(mgr)
-      mgr.moveTo = (offset: any, width: any) => {
-        console.log('[reading-progress] moveTo', {
-          offsetLeft: offset?.left,
-          width,
-          delta: mgr.layout?.delta,
-          scrollWidth: mgr.container?.scrollWidth,
-          scrollLeftBefore: mgr.container?.scrollLeft,
-        })
-        origMoveTo(offset, width)
-        console.log('[reading-progress] moveTo done', {
-          scrollLeftAfter: mgr.container?.scrollLeft,
-        })
-      }
-    }
-
     // 注册配色主题
     Object.entries(epubThemes).forEach(([tag, styles]) => {
       rendition.themes.register(tag, styles as any)
@@ -480,43 +459,6 @@ const EpubReader = ({
       await applyLocation(keep)
     }
 
-    // 诊断：确认 section 内 cfi 能否被 locationOf/toRange 解析。
-    // locationOf 返回 {left:0,top:0} 即代表 toRange 失败（定位只能落到章节开头）。
-    const diagRestore = () => {
-      const r: any = renditionRef.current
-      if (!r) return
-      const locs: any = (book as any).locations
-      const idx = startLocation ? locs?.locationFromCfi?.(startLocation) : null
-      const locCfi =
-        idx != null && idx >= 0 ? String(locs?.cfiFromLocation?.(idx)) : null
-      const arr = r.getContents?.() || []
-      const c: any = Array.isArray(arr) ? arr[0] : arr
-      let locOfTarget: any = 'no-contents'
-      let locOfCurrent: any = null
-      try {
-        if (c?.locationOf) {
-          locOfTarget = startLocation ? c.locationOf(startLocation) : null
-          const cur = r.currentLocation?.()?.start?.cfi
-          locOfCurrent = cur ? c.locationOf(cur) : null
-        }
-      } catch (e) {
-        locOfTarget = 'threw:' + String(e)
-      }
-      console.log('[reading-progress] diag', {
-        total: locs?.total,
-        idx,
-        locCfi,
-        startLocation,
-        locOfTarget,
-        locOfCurrent,
-        // 单页宽度 delta：若 locOfTarget.left < delta，说明目标本就在第 0 页
-        // （视口过宽时整章可能只有一页），此时落点并非 bug
-        delta: r.manager?.layout?.delta,
-        scrollWidth: r.manager?.container?.scrollWidth,
-        scrollLeft: r.manager?.container?.scrollLeft,
-      })
-    }
-
     // 初始定位：恢复到上次阅读位置。
     // 与桌面端同一手法 —— 把存下来的 cfi 直接交给 display()，不做百分比中转。
     const restoreLocation = (): Promise<void> => {
@@ -524,8 +466,7 @@ const EpubReader = ({
       return applyLocation(startLocation)
     }
 
-    // 等 locations 生成完（percentageFromCfi 依赖它）再恢复；
-    // onBookReady 负责触发 locations.generate，这里串起它的 promise。
+    // 等书籍就绪（onBookReady 负责触发 locations.generate）后再恢复位置
     book.loaded.navigation
       .then(() => {
         if (disposed) return
@@ -538,7 +479,6 @@ const EpubReader = ({
       .then(async () => {
         if (disposed) return
         displayed = true
-        diagRestore()
         // 先完成重排并回到恢复位置，等视图稳定后再解禁上报 ——
         // 否则重排后的 display 会上报，把错误 cfi 覆盖回后端
         await relayout()
