@@ -64,6 +64,10 @@ const EpubReader = ({
   const renditionRef = useRef<Rendition | null>(null)
   // 当前章节 iframe 的 document：closeSignal 触发淡出时需要拿到 layer
   const contentsDocRef = useRef<Document | null>(null)
+  // 期望停留的 cfi：初始为 initialLocation，之后由 relocated 事件更新。
+  // paginated 模式下重排（resize）会重新分页，可能把视图重置到章节开头，
+  // 这里留一份「应停留位置」，重排后据此定位回去。
+  const desiredCfiRef = useRef<string | null>(null)
   // 用 ref 保存回调，避免因依赖变化重建 state
   const cbRef = useRef({ onRelocated, onLookup, onCenterTap, onBookReady })
   cbRef.current = { onRelocated, onLookup, onCenterTap, onBookReady }
@@ -373,6 +377,7 @@ const EpubReader = ({
     // 阅读位置变化
     rendition.on('relocated', (loc: any) => {
       if (loc?.start?.cfi) {
+        desiredCfiRef.current = loc.start.cfi
         cbRef.current.onRelocated(loc.start.cfi)
       }
     })
@@ -384,27 +389,67 @@ const EpubReader = ({
 
     const startLocation =
       initialLocation && String(initialLocation).length ? (initialLocation as any) : undefined
-    rendition.display(startLocation)
+    // 记下「应停留位置」，供重排后定位回去
+    desiredCfiRef.current = startLocation ? String(startLocation) : null
+
+    // 是否已完成初始定位：在 display() 完成前绝不触发 relayout ——
+    // paginated 模式下 resize 会重新分页并把视图重置到章节开头，
+    // 抢在恢复之前就会导致「回到章节开头而非具体页」。
+    let displayed = false
 
     // 横竖屏 / 尺寸变化后重新排版
+    let lastW = 0
+    let lastH = 0
     const relayout = () => {
+      // 初始 display 尚未完成时不重排，避免把刚恢复的位置重置到章节开头
+      if (!displayed) return
       const node = holderRef.current
       const r = renditionRef.current
       // 渲染内核未就绪时 manager 尚未创建，此时 resize 会抛错，需跳过
       if (!node || !r || typeof (r as any).manager?.resize !== 'function') return
-      r.resize(node.clientWidth, node.clientHeight)
+      const w = node.clientWidth
+      const h = node.clientHeight
+      // 尺寸没变就不重排：多余重排会重新分页并丢位置
+      if (w === lastW && h === lastH) return
+      lastW = w
+      lastH = h
+      // 重排前记住当前位置，重排后定位回去，避免跳回章节开头
+      const keep =
+        (r as any).currentLocation?.()?.start?.cfi || desiredCfiRef.current
+      console.log('[reading-progress] relayout', { w, h, keep })
+      r.resize(w, h)
+      if (keep) {
+        window.setTimeout(() => {
+          if (disposed) return
+          try {
+            ;(renditionRef.current as any)?.display?.(keep)
+          } catch {
+            /* 忽略定位失败 */
+          }
+        }, 250)
+      }
     }
+
+    // 初始定位：恢复到上次阅读位置
+    rendition
+      .display(startLocation)
+      .then(() => {
+        displayed = true
+        console.log('[reading-progress] after display', {
+          passed: startLocation,
+          actual: (renditionRef.current as any)?.currentLocation?.()?.start?.cfi,
+        })
+        // 内核 start 完成后补一次重排（此时已落到恢复位置，relayout 会保留该位置）
+        relayout()
+      })
+      .catch(() => {
+        displayed = true
+      })
+
     window.addEventListener('resize', relayout)
     window.addEventListener('orientationchange', relayout)
     const ro = new ResizeObserver(relayout)
     ro.observe(holderRef.current)
-    // 内核 start 完成后 manager 才可用，此时补一次重排（ResizeObserver 首次回调会被上面的守卫跳过）
-    ;(rendition.started as any)
-      ?.then(() => {
-        if (disposed) return
-        relayout()
-      })
-      .catch(() => {})
 
     return () => {
       disposed = true
