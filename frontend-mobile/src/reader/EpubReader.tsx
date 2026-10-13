@@ -460,6 +460,9 @@ const EpubReader = ({
         startLocation,
         locOfTarget,
         locOfCurrent,
+        // 单页宽度 delta：若 locOfTarget.left < delta，说明目标本就在第 0 页
+        // （视口过宽时整章可能只有一页），此时落点并非 bug
+        delta: r.manager?.layout?.delta,
       })
     }
 
