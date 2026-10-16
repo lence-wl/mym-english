@@ -52,13 +52,30 @@ export default () => {
   lookupEnabledRef.current = lookupEnabled
 
   const handleLookupToggle = (enabled: boolean) => {
-    state.updateThemeConfig({ ...state.themeConfig, lookupEnabled: enabled })
+    // 用 getState() 取最新 themeConfig：本函数会被 [] 依赖的快捷键监听调用，
+    // 直接展开闭包里的 state.themeConfig 会把过期的其它设置一起写回去
+    const { themeConfig, updateThemeConfig } = useStore.getState()
+    updateThemeConfig({ ...themeConfig, lookupEnabled: enabled })
     // 关闭时清掉已选中的内容，避免开关再次打开时旧选区又弹出翻译层
     if (!enabled) {
       setSelectedText('')
       setMouseUpState(true)
     }
   }
+
+  // 快捷键 Alt+L 切换「取词/取句」开关；焦点在输入控件内时不拦截
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.altKey || e.key.toLowerCase() !== 'l') return
+      const el = e.target as HTMLElement | null
+      const tag = el?.tagName?.toLowerCase()
+      if (tag === 'input' || tag === 'textarea' || el?.isContentEditable) return
+      e.preventDefault()
+      handleLookupToggle(!lookupEnabledRef.current)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   // 防抖处理字体大小变更，延迟300ms
   const debouncedSetFontSize = debounce((size: number) => {
@@ -321,7 +338,7 @@ export default () => {
             {/* 取词/取句：关闭后划词只做选中，不弹翻译层 */}
             <div className="flex items-center mt-2">
               <Typography.Text className="mr-2 text-sm">
-                取词/取句:
+                取词/取句 (Alt+L):
               </Typography.Text>
               <Switch
                 size="small"

@@ -125,11 +125,13 @@ const ShowTranslation = ({ text }: { text: string }) => {
       {showText ? (
         <div style={styles.textHeader}>
           <div style={styles.flexRow}>
-            {
+            {/* 加载中由这里先显示单词；加载完成后交给 ActionIcons 显示
+                （它自带 TTS 逐词高亮），否则同一行会把单词渲染两份 */}
+            {loading ? (
               <span style={{ fontSize: themeConfig.fontSize * 0.7 + 'px' }}>
                 {text}
               </span>
-            }
+            ) : null}
             {/* 单词数 === 1 且未加载时显示操作按钮 */}
             {!loading && !translation?.t ? (
               <div style={styles.actionContainer}>
