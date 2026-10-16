@@ -14,8 +14,10 @@ const PrivateRoute = () => {
   const [loading, setLoading] = useState(false)
   const hasToken = !!localStorage.getItem('token')
 
-  // 游客（未登录）仅放行公开阅读相关路由：阅读页 `/reader` 与书架 `/bookshelf`
-  const GUEST_ALLOWED = ['/reader', '/bookshelf']
+  // 游客（未登录）放行：index `/`（会再转到 /reader）与公开阅读路由 /reader、/bookshelf。
+  // 必须包含 `/`：访问 /m 时 pathname 先是 `/`，若不含会在 index 的
+  // <Navigate to="/reader"> 生效前就被下面的守卫同步跳到登录页。
+  const GUEST_ALLOWED = ['/', '/reader', '/bookshelf']
   const guestAllowed = GUEST_ALLOWED.includes(location.pathname)
 
   const loadUser = async () => {
