@@ -1,14 +1,20 @@
 import styled, { css, keyframes } from 'styled-components'
 import { useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import routerData from '../router/index'
 import { theme, type GlobalToken } from 'antd'
+import { isGuest, promptGuestLogin } from '../utils/guest'
 
 const Navigator = () => {
   // 获取当前主题 token
   const { token } = theme.useToken()
   const [isOpen, setIsOpen] = useState(false)
   const location = useLocation()
+  const navigate = useNavigate()
+  const guest = isGuest()
+
+  // 游客仅可直接进入公开阅读相关路由，其余入口提示登录（避免挂载受限页面触发 401）
+  const GUEST_ALLOWED = ['/', '/bookshelf']
 
   const toggleOpen = () => {
     setIsOpen((prev) => !prev)
@@ -36,7 +42,14 @@ const Navigator = () => {
                   }`}
                   key={item.path}
                   to={item.path}
-                  onClick={toggleOpen}
+                  onClick={(e) => {
+                    if (guest && !GUEST_ALLOWED.includes(item.path)) {
+                      e.preventDefault()
+                      promptGuestLogin(() => navigate('/login'))
+                      return
+                    }
+                    toggleOpen()
+                  }}
                 >
                   {item.name}
                 </Link>

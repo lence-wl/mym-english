@@ -22,3 +22,13 @@ export const updateReadingStatus = () => {
     currentBookLoc,
   })
 }
+
+// 指定书籍的阅读进度上报（用于登录后合并游客本地进度）
+export const updateReadingStatusById = (
+  currentBookId: number | string,
+  currentBookLoc: string | null,
+) =>
+  request.patch<any>(`/users/me/reading-status`, {
+    currentBookId,
+    currentBookLoc,
+  })

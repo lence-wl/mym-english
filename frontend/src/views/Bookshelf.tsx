@@ -13,10 +13,12 @@ import {
   message,
 } from 'antd'
 import { getBookList, deleteBook, updateBookVisibility } from '../api/book'
+import { getPublicBooks } from '../api/book'
 import { useNavigate } from 'react-router-dom'
 import useStore from '../store'
 import { updateReadingStatus } from '../api/user'
 import { getBookDetail } from '../api/book'
+import { isGuest, readGuestProgress } from '../utils/guest'
 
 // 书籍类型接口
 interface BookItem {
@@ -56,6 +58,15 @@ const BookCard: React.FC<{
   // 点击跳转到阅读页面（支持多本同时在读，随时可打开任意书）
   const goReader = async (id: number) => {
     const { userInfo } = state
+    // 游客：进度只存本地，不上报服务端（无 token 也调不动能力接口）
+    if (isGuest()) {
+      state.updateUserInfo({
+        currentBookId: id,
+        currentBookLoc: readGuestProgress(id),
+      })
+      navigate('/', { replace: true })
+      return
+    }
     const saved = (userInfo.myBookData || []).find(
       (item) => String(item.id) === String(id),
     )
@@ -253,6 +264,8 @@ const BookCard: React.FC<{
 const EbookShelf: React.FC = () => {
   // 状态管理
   const state = useStore()
+  const navigate = useNavigate()
+  const guest = isGuest()
   const [books, setBooks] = useState<BookItem[]>([])
   const [loading, setLoading] = useState(true)
   /** 当前分类 */
@@ -262,12 +275,14 @@ const EbookShelf: React.FC = () => {
 
   const isAdmin = state.userInfo.role === 'admin'
 
-  // 管理员多一个「全部书籍」用于挑选公开；普通用户只有公共书籍与自己上传
-  const tabs = [
-    { key: 'public' as TabKey, label: '公共书籍' },
-    { key: 'mine' as TabKey, label: '我的上传' },
-    ...(isAdmin ? [{ key: 'all' as TabKey, label: '全部书籍' }] : []),
-  ]
+  // 游客只能浏览公开书，故仅保留「公共书籍」；登录用户按角色展示分类
+  const tabs = guest
+    ? [{ key: 'public' as TabKey, label: '公共书籍' }]
+    : [
+        { key: 'public' as TabKey, label: '公共书籍' },
+        { key: 'mine' as TabKey, label: '我的上传' },
+        ...(isAdmin ? [{ key: 'all' as TabKey, label: '全部书籍' }] : []),
+      ]
 
   /** 按分类拼查询条件：公共=仅公开书；我的上传=仅自己上传；全部=不加限制 */
   const queryFor = (key: TabKey) => {
@@ -278,12 +293,11 @@ const EbookShelf: React.FC = () => {
 
   const getBookListByPagi = async () => {
     setLoading(true)
-    const { data } = await getBookList({
-      limit: 10,
-      page: 1,
-      ...queryFor(tab),
-    })
-    setBooks(data?.items || [])
+    // 游客走无鉴权的公开书接口，避免触发 401
+    const res = guest
+      ? await getPublicBooks({ limit: 10, page: 1 })
+      : await getBookList({ limit: 10, page: 1, ...queryFor(tab) })
+    setBooks(res.data?.items || [])
     setLoading(false)
   }
 
@@ -297,6 +311,18 @@ const EbookShelf: React.FC = () => {
     <div className="min-h-screen flex flex-col">
       {/* 主要内容区 */}
       <main className="flex-1 px-5 md:px-0 py-6 max-w-7xl mx-auto w-full">
+        {/* 游客态：顶部提供显式登录入口，引导解锁查词/收藏/云同步等能力 */}
+        {guest && (
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <Typography.Text type="secondary">
+              未登录，当前仅可阅读公开书籍
+            </Typography.Text>
+            <Button type="primary" onClick={() => navigate('/login')}>
+              登录
+            </Button>
+          </div>
+        )}
+
         {/* 分类 tab：公共书籍 / 我的上传 /（管理员）全部书籍 */}
         <Segmented
           className="mb-4"

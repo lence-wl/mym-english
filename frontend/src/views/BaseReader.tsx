@@ -1,11 +1,27 @@
 import { useState, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ReactReader } from '../components/ReactReader'
 import type { Rendition, EpubCFI, Contents } from 'epubjs'
 import useStore from '../store'
 import { updateReadingStatus, me } from '../api/user'
 import { debounce } from 'lodash'
-import { getBookDetail } from '../api/book'
-import { Radio, Button, Drawer, notification, Slider, Typography, Switch } from 'antd'
+import { getBookDetail, getPublicBookDetail } from '../api/book'
+import {
+  Radio,
+  Button,
+  Drawer,
+  notification,
+  Slider,
+  Typography,
+  Switch,
+  Modal,
+} from 'antd'
+import {
+  isGuest,
+  readGuestProgress,
+  writeGuestProgress,
+  promptGuestLogin,
+} from '../utils/guest'
 import CommonLayer from '../components/CommmonLayer'
 import { epubThemes } from '../theme/EpubThemeConfig'
 import ThemeSwitcher from '../components/ThemeSwitcher'
@@ -25,6 +41,7 @@ document.addEventListener('contextmenu', handleContextmenu)
 let mouseUp = true
 export default () => {
   const state = useStore()
+  const navigate = useNavigate()
   const loc = state.userInfo.currentBookLoc
   const [bookUrl, setBookUrl] = useState<string>('')
   const rendition = useRef<Rendition | undefined>(undefined)
@@ -76,6 +93,9 @@ export default () => {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
+
+  // 游客触发查词/翻译等受限能力时的统一提示（去重逻辑在 promptGuestLogin 内）
+  const promptLogin = () => promptGuestLogin(() => navigate('/login'))
 
   // 防抖处理字体大小变更，延迟300ms
   const debouncedSetFontSize = debounce((size: number) => {
@@ -131,6 +151,11 @@ export default () => {
 
     // 文字选择事件
     _rendition.on('selected', async (cfiRange: EpubCFI, contents: Contents) => {
+      // 游客：不弹翻译层，直接提示登录（查词/翻译为登录能力）
+      if (isGuest()) {
+        promptLogin()
+        return
+      }
       // 取词/取句开关关闭时，划词不弹翻译层
       if (!lookupEnabledRef.current) return
       const selection = contents.document.getSelection()!
@@ -151,6 +176,7 @@ export default () => {
       }
     })
     _rendition.on('mousedown', (event: any) => {
+      if (isGuest()) return
       if (!lookupEnabledRef.current) return
       const tagName = event.target.tagName
       if (!['svg', 'path'].includes(tagName)) {
@@ -159,6 +185,7 @@ export default () => {
       }
     })
     _rendition.on('mouseup', async () => {
+      if (isGuest()) return
       if (!lookupEnabledRef.current) return
       if (selectedText.length <= 1000) {
         setMouseUpState(true)
@@ -214,13 +241,30 @@ export default () => {
         ...(bookId ? [{ id: String(bookId), location: String(loc) }] : []),
       ],
     })
-    debouncedUpdateReadingStatus(loc)
+    if (isGuest()) {
+      // 游客：进度只写本地，不调 updateReadingStatus（无 token 会 401）
+      setPercent(rendition.current?.book.locations.percentageFromCfi(loc) || 0)
+      writeGuestProgress(bookId, String(loc))
+    } else {
+      debouncedUpdateReadingStatus(loc)
+    }
   }
 
   // 获取电子书详情数据
   const getBookData = async () => {
     const id = state.userInfo.currentBookId
     if (!id) return
+    // 游客：进度取本地记录，书详情走无鉴权的公开书接口
+    if (isGuest()) {
+      const localLoc = readGuestProgress(id)
+      if (localLoc) {
+        state.updateUserInfo({ currentBookLoc: localLoc })
+        setLoaction(localLoc)
+      }
+      const bookData = await getPublicBookDetail(id)
+      setBookUrl(bookData.data.filePath)
+      return
+    }
     // 进入阅读页先用服务端最新进度纠正本地位置：本机 store 可能是上次会话
     // 残留的旧位置，直接用它恢复会显示成旧进度。按「当前这本书」从
     // myBookData 取（多本书各存一份），取不到再退回服务端 currentBookLoc。

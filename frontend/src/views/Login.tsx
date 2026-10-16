@@ -26,6 +26,7 @@ import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import '../styles/authPage.css'
 import { getCaptcha, captchaVerify, userRegister, userLogin } from '../api/user'
+import { mergeGuestProgress } from '../utils/guest'
 import ThemeSwitcher from '../components/ThemeSwitcher'
 
 const { Title, Text, Link: AntLink } = Typography
@@ -133,6 +134,8 @@ export default () => {
           })
           // 保存token等登录状态
           localStorage.setItem('token', loginResponse.data.token)
+          // 登录后合并游客期间的本地阅读进度（仅服务端无进度时才上传）
+          await mergeGuestProgress()
           navigate('/')
         } catch (err: any) {
           notification.open({
