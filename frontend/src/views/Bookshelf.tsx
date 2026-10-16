@@ -111,7 +111,14 @@ const BookCard: React.FC<{
   }
 
   return (
-    <div className="book-card-container relative h-full group cursor-pointer">
+    <div
+      className="book-card-container relative h-full group cursor-pointer"
+      onClick={() => {
+        // 整个卡片可点击进入阅读；编辑态下只做管理操作，不触发跳转
+        if (editing) return
+        goReader(book.id)
+      }}
+    >
       {/* 整个卡片内容，包括书脊和主卡片 */}
       <div className="h-full transition-all duration-500 ease-in-out hover:translate-y-[-8px] hover:shadow-2xl">
         {/* 立体书脊 - 现在包含在同一个动画容器中 */}
@@ -245,7 +252,9 @@ const BookCard: React.FC<{
               </span>
               <div
                 className="flex items-center gap-1 text-[#333] bolder cursor-pointer"
-                onClick={() => {
+                onClick={(e) => {
+                  // 阻止冒泡，避免与外层整卡点击重复触发
+                  e.stopPropagation()
                   if (editing) return
                   goReader(book.id)
                 }}
