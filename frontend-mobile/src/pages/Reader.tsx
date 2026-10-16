@@ -6,8 +6,14 @@ import { RiArrowLeftSLine, RiSettings3Line } from '@remixicon/react'
 import EpubReader from '../reader/EpubReader'
 import DefinitionSheet from '../components/DefinitionSheet'
 import ThemeSwitcher from '../components/ThemeSwitcher'
-import { getBookDetail } from '../api/book'
+import { getBookDetail, getPublicBookDetail } from '../api/book'
 import { me, flushReadingStatus } from '../api/user'
+import {
+  isGuest,
+  readGuestProgress,
+  writeGuestProgress,
+  promptGuestLogin,
+} from '../utils/guest'
 import useStore from '../store'
 import { readingColorConfig } from '../theme/themeConfig'
 
@@ -44,24 +50,32 @@ const Reader = () => {
     if (!id) return
     setLoadingBook(true)
     setBookRestored(false)
+    const guest = isGuest()
+    // 游客：进度取本地记录；登录用户：按「当前这本书」从服务端 myBookData
+    // 取最新位置（多本书各存一份），取不到再退回服务端 currentBookLoc。
     // App 从后台恢复（未重新加载）时 store 可能还是本机旧位置，直接用它恢复
-    // 会显示成旧进度。这里按「当前这本书」从服务端 myBookData 取最新位置
-    // （多本书各存一份），取不到再退回服务端 currentBookLoc。
-    const refreshLoc = me()
-      .then(({ data }) => {
-        const saved = (data?.myBookData || []).find(
-          (b: any) => String(b.id) === String(id),
-        )
-        const freshLoc =
-          saved?.location ||
-          (String(data?.currentBookId) === String(id) ? data?.currentBookLoc : null) ||
-          null
-        useStore.getState().updateUserInfo({ currentBookLoc: freshLoc })
-      })
-      .catch(() => {
-        /* 拉最新失败就沿用本地值，不阻塞阅读 */
-      })
-    Promise.all([getBookDetail(id), refreshLoc])
+    // 会显示成旧进度。
+    const refreshLoc = guest
+      ? Promise.resolve(readGuestProgress(id)).then((loc) => {
+          useStore.getState().updateUserInfo({ currentBookLoc: loc })
+        })
+      : me()
+          .then(({ data }) => {
+            const saved = (data?.myBookData || []).find(
+              (b: any) => String(b.id) === String(id),
+            )
+            const freshLoc =
+              saved?.location ||
+              (String(data?.currentBookId) === String(id) ? data?.currentBookLoc : null) ||
+              null
+            useStore.getState().updateUserInfo({ currentBookLoc: freshLoc })
+          })
+          .catch(() => {
+            /* 拉最新失败就沿用本地值，不阻塞阅读 */
+          })
+    // 游客走无鉴权的公开书接口，避免触发 401
+    const detailReq = guest ? getPublicBookDetail(id) : getBookDetail(id)
+    Promise.all([detailReq, refreshLoc])
       .then(([res]) => {
         // 后端只返回文件名，需拼上 /uploads 前缀（与桌面端 BaseReader 一致）
         setBookUrl(res.data.filePath ? `/uploads/${res.data.filePath}` : '')
@@ -116,7 +130,12 @@ const Reader = () => {
           ...(bookId ? [{ id: String(bookId), location: cfi }] : []),
         ],
       })
-      reportProgress(cfi)
+      if (isGuest()) {
+        // 游客：进度只写本地，不走 flushReadingStatus（无 token 会 401）
+        writeGuestProgress(bookId, cfi)
+      } else {
+        reportProgress(cfi)
+      }
       const book = bookRef.current
       if (book && locationsReadyRef.current) {
         try {
@@ -182,7 +201,16 @@ const Reader = () => {
               lineHeight={themeConfig.lineHeight}
               themeKey={themeConfig.theme}
               onRelocated={handleRelocated}
-              onLookup={setSelectedText}
+              onLookup={(text) => {
+                // 游客：查词/查句为登录能力，提示登录且不打开释义弹层
+                if (isGuest()) {
+                  promptGuestLogin(() => navigate('/login'))
+                  // 触发一次高亮淡出，清掉划词色块（否则残留高亮）
+                  setClearHighlightSignal((v) => v + 1)
+                  return
+                }
+                setSelectedText(text)
+              }}
               onCenterTap={() => setChromeVisible((v) => !v)}
               onBookReady={handleBookReady}
               onRestored={() => setBookRestored(true)}

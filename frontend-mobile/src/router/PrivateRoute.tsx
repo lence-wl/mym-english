@@ -14,6 +14,10 @@ const PrivateRoute = () => {
   const [loading, setLoading] = useState(false)
   const hasToken = !!localStorage.getItem('token')
 
+  // 游客（未登录）仅放行公开阅读相关路由：阅读页 `/reader` 与书架 `/bookshelf`
+  const GUEST_ALLOWED = ['/reader', '/bookshelf']
+  const guestAllowed = GUEST_ALLOWED.includes(location.pathname)
+
   const loadUser = async () => {
     try {
       setLoading(true)
@@ -36,14 +40,21 @@ const PrivateRoute = () => {
 
   useEffect(() => {
     if (!hasToken) {
-      navigate('/login', { replace: true })
+      // 游客：不在公开阅读路由内则跳登录页；已选书则停留，未选书去书架
+      if (!guestAllowed) {
+        navigate('/login', { replace: true })
+        return
+      }
+      if (location.pathname === '/reader' && !state.userInfo.currentBookId) {
+        navigate('/bookshelf', { replace: true })
+      }
       return
     }
     if (!state.userInfo.username) loadUser()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasToken, location.pathname])
+  }, [hasToken, location.pathname, state.userInfo.currentBookId])
 
-  if (!hasToken) return <Navigate to="/login" replace />
+  if (!hasToken && !guestAllowed) return <Navigate to="/login" replace />
 
   // 阅读页与循环播放页为沉浸全屏，不展示底部导航
   const hideTabBar =

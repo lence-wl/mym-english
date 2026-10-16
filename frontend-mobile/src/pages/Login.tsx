@@ -3,6 +3,7 @@ import { Button, Form, Input, notification, Segmented } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { RiLockLine, RiMailLine, RiRefreshLine, RiUserLine } from '@remixicon/react'
 import { captchaVerify, getCaptcha, userLogin, userRegister } from '../api/user'
+import { mergeGuestProgress } from '../utils/guest'
 
 /** 移动端登录/注册页 */
 const Login = () => {
@@ -49,6 +50,8 @@ const Login = () => {
           password: values.password,
         })
         localStorage.setItem('token', res.data.token)
+        // 登录后合并游客期间的本地阅读进度（仅服务端无进度时才上传）
+        await mergeGuestProgress()
         navigate('/reader', { replace: true })
       } else {
         await userRegister({

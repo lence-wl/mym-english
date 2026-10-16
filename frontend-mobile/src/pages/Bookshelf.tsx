@@ -3,8 +3,14 @@ import { useNavigate } from 'react-router-dom'
 import { Empty, Modal, Segmented, Spin, notification } from 'antd'
 import { RiAddLine, RiDeleteBinLine } from '@remixicon/react'
 import PageShell from '../components/PageShell'
-import { getBookList, deleteBook, updateBookVisibility } from '../api/book'
+import {
+  getBookList,
+  deleteBook,
+  updateBookVisibility,
+  getPublicBooks,
+} from '../api/book'
 import { flushReadingStatus } from '../api/user'
+import { isGuest, readGuestProgress } from '../utils/guest'
 import useStore from '../store'
 
 interface BookItem {
@@ -45,13 +51,16 @@ const Bookshelf = () => {
   const [deleting, setDeleting] = useState(false)
 
   const isAdmin = state.userInfo.role === 'admin'
+  const guest = isGuest()
 
-  // 管理员多一个「全部书籍」用于挑选公开；普通用户只有公共书籍与自己上传
-  const tabs = [
-    { key: 'public' as TabKey, label: '公共书籍' },
-    { key: 'mine' as TabKey, label: '我的上传' },
-    ...(isAdmin ? [{ key: 'all' as TabKey, label: '全部书籍' }] : []),
-  ]
+  // 游客只能浏览公开书，故仅保留「公共书籍」；登录用户按角色展示分类
+  const tabs = guest
+    ? [{ key: 'public' as TabKey, label: '公共书籍' }]
+    : [
+        { key: 'public' as TabKey, label: '公共书籍' },
+        { key: 'mine' as TabKey, label: '我的上传' },
+        ...(isAdmin ? [{ key: 'all' as TabKey, label: '全部书籍' }] : []),
+      ]
 
   /** 按分类拼查询条件：公共=仅公开书；我的上传=仅自己上传；全部=不加限制 */
   const queryFor = (key: TabKey) => {
@@ -62,13 +71,26 @@ const Bookshelf = () => {
 
   useEffect(() => {
     setLoading(true)
-    getBookList({ limit: 50, page: 1, ...queryFor(tab) })
+    // 游客走无鉴权的公开书接口，避免触发 401
+    const req = guest
+      ? getPublicBooks({ limit: 50, page: 1 })
+      : getBookList({ limit: 50, page: 1, ...queryFor(tab) })
+    req
       .then(({ data }) => setBooks(data?.items || []))
       .finally(() => setLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
 
   const openBook = (book: BookItem) => {
+    // 游客：进度只存本地，不上报服务端
+    if (guest) {
+      state.updateUserInfo({
+        currentBookId: book.id,
+        currentBookLoc: readGuestProgress(book.id),
+      })
+      navigate('/reader')
+      return
+    }
     // 允许随时切换到任意一本：每本书各自记录阅读位置（后端 myBookData），
     // 换回来时接着上次的位置继续读，不会因为换书而丢掉进度
     if (state.userInfo.currentBookId !== book.id) {
@@ -127,22 +149,35 @@ const Bookshelf = () => {
       title="书架"
       extra={
         <div className="flex items-center gap-1">
-          {/* 「公共书籍」无可管理内容，不显示编辑 */}
-          {books.length > 0 && tab !== 'public' && (
+          {/* 游客态：显式登录入口，引导解锁查词/收藏/云同步等能力 */}
+          {guest ? (
             <button
               className="px-2 py-1 text-sm no-select"
-              onClick={() => setEditing((v) => !v)}
+              style={{ color: 'var(--global-primary)' }}
+              onClick={() => navigate('/login')}
             >
-              {editing ? '完成' : '编辑'}
+              登录
             </button>
+          ) : (
+            <>
+              {/* 「公共书籍」无可管理内容，不显示编辑 */}
+              {books.length > 0 && tab !== 'public' && (
+                <button
+                  className="px-2 py-1 text-sm no-select"
+                  onClick={() => setEditing((v) => !v)}
+                >
+                  {editing ? '完成' : '编辑'}
+                </button>
+              )}
+              <button
+                className="p-1 no-select"
+                onClick={() => navigate('/addBook')}
+                aria-label="上传书籍"
+              >
+                <RiAddLine size={22} />
+              </button>
+            </>
           )}
-          <button
-            className="p-1 no-select"
-            onClick={() => navigate('/addBook')}
-            aria-label="上传书籍"
-          >
-            <RiAddLine size={22} />
-          </button>
         </div>
       }
     >
