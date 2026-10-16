@@ -182,6 +182,75 @@ export class BookService {
   }
 
   /**
+   * 游客可见条件：公开 + 正常上架（status=1）+ 未删除
+   */
+  private publicFilter(query: QueryBookDto): Record<string, any> {
+    const { title, author } = query;
+    const filter: Record<string, any> = {
+      deletedAt: null,
+      isPublic: true,
+      status: 1,
+    };
+    if (title) filter.title = { $regex: escapeRegExp(title), $options: 'i' };
+    if (author) filter.author = { $regex: escapeRegExp(author), $options: 'i' };
+    return filter;
+  }
+
+  /**
+   * 公开书列表（游客可访问）
+   * 与 findAll 的差异：不带任何用户上下文、不含私有/下架书籍
+   */
+  async findPublic(query: QueryBookDto) {
+    const { page, limit } = query;
+    const skip = (page - 1) * limit;
+    const filter = this.publicFilter(query);
+
+    const [items, total] = await Promise.all([
+      this.bookModel
+        .find(filter, LIST_PROJECTION)
+        .skip(skip)
+        .limit(limit)
+        .sort({ createdAt: -1 }),
+      this.bookModel.countDocuments(filter),
+    ]);
+
+    const readerCounts = await this.countReaders(items.map((book) => book._id));
+    const data = items.map((book) => ({
+      ...book.toObject(),
+      readerCount: readerCounts.get(book._id) ?? 0,
+    }));
+
+    return {
+      data: {
+        items: data,
+        pagination: {
+          total,
+          page,
+          limit,
+          pages: Math.ceil(total / limit),
+        },
+      },
+    };
+  }
+
+  /**
+   * 公开书详情（游客可访问）
+   * 返回含 filePath 的完整信息，供阅读器取 /uploads 下的 epub 文件
+   */
+  async findPublicOne(id: number) {
+    const book = await this.bookModel.findOne({
+      _id: id,
+      deletedAt: null,
+      isPublic: true,
+      status: 1,
+    });
+    if (!book) {
+      throw new NotFoundException(`电子书ID ${id} 不存在`);
+    }
+    return { data: book };
+  }
+
+  /**
    * 通过多个ID获取书籍列表
    */
   async findByIds(ids: number[], user: { id: number }) {
